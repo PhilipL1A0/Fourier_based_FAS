@@ -1,15 +1,19 @@
 import os
+from tracemalloc import start
 import cv2
 import json
+import time
 import numpy as np
+from tqdm import tqdm
 from sklearn.model_selection import train_test_split
+
 
 def split_datasets(data_dirs, train_ratio=0.8, val_ratio=0.1, test_ratio=0.1):
     all_images = []
     all_labels = []
     for data_dir in data_dirs:
         for category in ['living', 'spoofing']:
-            label = 1 if category == 'living' else 0  # 标签逻辑调整（living=1，spoofing=0）
+            label = 1 if category == 'living' else 0
             img_dir = os.path.join(data_dir, category)
             for img_name in os.listdir(img_dir):
                 if img_name.lower().endswith(('.jpg', '.png', '.bmp')):
@@ -35,38 +39,64 @@ def split_datasets(data_dirs, train_ratio=0.8, val_ratio=0.1, test_ratio=0.1):
         'test': (X_test.tolist(), y_test.tolist())
     }
 
-def compute_mean_std(image_paths, is_spatial=True):
-    total_pixels = 0
-    sum_channels = 0
-    sum_squares = 0
+def compute_mean_std(paths, is_spatial=True):
+    """
+    计算图像数据的均值和标准差，支持空域和频域。
     
-    for path in image_paths:
+    :param paths: 图像路径列表
+    :param is_spatial: 是否为空域图像
+    :return: 均值和标准差
+    """
+    total_pixels = 0
+    sum_channels = None
+    sum_squares = None
+
+    for path in tqdm(paths, desc="Computing Mean and Std", ncols=100, leave=False):
         if is_spatial:
-            img = cv2.imread(path)
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            img = cv2.imread(path)  # 读取 BGR 图像
+            if img is None:
+                print(f"Warning: Unable to read image {path}. Skipping.")
+                continue
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)  # 转换为 RGB
+            img = img.astype(np.float64) / 255.0  # 归一化到 [0, 1]
             h, w, c = img.shape
-            sum_channels += np.sum(img, axis=(0, 1))
-            sum_squares += np.sum(img**2, axis=(0, 1))
-            total_pixels += h * w
+            if sum_channels is None:
+                sum_channels = np.zeros(c, dtype=np.float64)
+                sum_squares = np.zeros(c, dtype=np.float64)
+            sum_channels += np.sum(img, axis=(0, 1))  # 每个通道的像素值求和
+            sum_squares += np.sum(img**2, axis=(0, 1))  # 每个通道的像素值平方求和
+            total_pixels += h * w  # 累加总像素数
         else:
-            # 频域图像假设为单通道灰度图
             img = np.load(path)  # 假设频域特征以.npy格式保存
+            if img is None or img.size == 0:
+                print(f"Warning: Unable to read frequency data {path}. Skipping.")
+                continue
+            img = img.astype(np.float64)  # 确保高精度
+            if sum_channels is None:
+                sum_channels = 0.0
+                sum_squares = 0.0
             sum_channels += np.sum(img)
             sum_squares += np.sum(img**2)
             total_pixels += img.size
-    
-    if is_spatial:
-        mean = sum_channels / total_pixels
-        std = np.sqrt(sum_squares / total_pixels - (mean ** 2))
-    else:
-        mean = sum_channels / total_pixels
-        std = np.sqrt(sum_squares / total_pixels - (mean ** 2))
-    
-    return mean, std
+
+    if total_pixels == 0:
+        raise ValueError("Total pixels is zero. Check the input image paths or data.")
+
+    mean = sum_channels / total_pixels  # 每个通道的均值
+    variance = sum_squares / total_pixels - (mean ** 2)  # 每个通道的方差
+    variance = np.maximum(variance, 0)  # 防止浮点误差导致负值
+    std = np.sqrt(variance)  # 每个通道的标准差
+
+    return mean.tolist(), std.tolist()
 
 def generate_frequency_features(spatial_paths, output_dir):
     os.makedirs(output_dir, exist_ok=True)
-    for path in spatial_paths:
+    
+    # 添加进度条
+    for path in tqdm(spatial_paths, 
+                    desc="Generating Frequency Features", 
+                    ncols=100, 
+                    leave=False):
         # 生成频域特征并保存
         img_bgr = cv2.imread(path)
         img_gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
@@ -83,20 +113,25 @@ def generate_frequency_features(spatial_paths, output_dir):
 
 def main():
     data_dirs = [
-        '/media/main/lzf/FAS/Fourier_based_cnn/data/FAS/CASIA',
-        '/media/main/lzf/FAS/Fourier_based_cnn/data/FAS/idiap',
-        '/media/main/lzf/FAS/Fourier_based_cnn/data/FAS/MSU',
-        '/media/main/lzf/FAS/Fourier_based_cnn/data/FAS/OULU'
+        '/media/main/lzf/FBFAS/data/FAS/CASIA',
+        '/media/main/lzf/FBFAS/data/FAS/idiap',
+        '/media/main/lzf/FBFAS/data/FAS/MSU',
+        '/media/main/lzf/FBFAS/data/FAS/OULU'
     ]
     
+    start = time.time()
     # 划分数据集
     splits = split_datasets(data_dirs)
     
     # 生成频域特征并保存
-    output_freq_dir = "preprocessed/frequency"
-    for split in ['train', 'val', 'test']:
+    output_freq_dir = "/media/main/lzf/FBFAS/data/dataset/frequency"
+    
+    # 添加进度条显示每个split的处理
+    for split in tqdm(['train', 'val', 'test'], 
+                     desc="Processing Splits", 
+                     ncols=100):
         spatial_paths = splits[split][0]
-        generate_frequency_features(spatial_paths, output_freq_dir)
+        # generate_frequency_features(spatial_paths, output_freq_dir)
     
     # 计算空域和频域的均值和标准差
     train_paths = splits['train'][0]
@@ -105,8 +140,8 @@ def main():
     
     # 保存统计信息
     stats = {
-        'spatial': {'mean': spatial_mean.tolist(), 'std': spatial_std.tolist()},
-        'frequency': {'mean': freq_mean.item(), 'std': freq_std.item()}
+        'spatial': {'mean': spatial_mean, 'std': spatial_std},
+        'frequency': {'mean': freq_mean, 'std': freq_std}
     }
     with open('configs/dataset_stats.json', 'w') as f:
         json.dump(stats, f)
@@ -114,6 +149,8 @@ def main():
     # 保存数据划分路径
     with open('configs/splits.json', 'w') as f:
         json.dump(splits, f)
+
+    print(f"Data generation completed in {time.strftime('%H:%M:%S', time.gmtime(time.time() - start))}")
 
 if __name__ == '__main__':
     main()

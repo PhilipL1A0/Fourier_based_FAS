@@ -1,4 +1,8 @@
+import os
+import csv
+from numpy import save
 import torch
+import logging
 import torch.optim as optim
 from torch.nn.parallel import DataParallel
 from torch.optim.lr_scheduler import LambdaLR
@@ -34,10 +38,56 @@ def setup_scheduler(optimizer, config):
     return LambdaLR(optimizer, lr_lambda=warmup_cosine_lr)
 
 
-def setup_early_stopping(config):
+def setup_logger(output_dir, model_name):
+    """
+    设置日志记录器，将日志保存到文件并输出到控制台，同时初始化 CSV 文件记录训练信息。
+
+    Args:
+        output_dir (str): 日志文件保存的目录。
+        model_name (str): 模型名称，用于生成日志文件名。
+
+    Returns:
+        logging.Logger: 配置好的日志记录器。
+        str: CSV 文件路径。
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    log_path = os.path.join(output_dir, 'log', model_name + ".log")
+    csv_path = os.path.join(output_dir, 'csv', model_name + ".csv")
+
+    # 创建日志记录器
+    logger = logging.getLogger("TrainingLogger")
+    logger.setLevel(logging.INFO)
+
+    # 创建文件处理器
+    file_handler = logging.FileHandler(log_path)
+    file_handler.setLevel(logging.INFO)
+
+    # 创建控制台处理器
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+
+    # 设置日志格式
+    formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+    file_handler.setFormatter(formatter)
+    console_handler.setFormatter(formatter)
+
+    # 添加处理器到日志记录器
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+
+    # 初始化 CSV 文件
+    if not os.path.exists(csv_path):
+        with open(csv_path, mode='w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(["Epoch", "Train Loss", "Train Acc", "Val Loss", "Val Acc"])
+
+    return logger, csv_path
+
+
+def setup_early_stopping(config, model_save_path):
     """早停机制初始化"""
     class EarlyStopping:
-        def __init__(self, patience=10, verbose=True, path="checkpoint.pt"):
+        def __init__(self, patience=10, verbose=True, path="checkpoint.pth"):
             self.patience = patience
             self.verbose = verbose
             self.counter = 0
@@ -62,37 +112,28 @@ def setup_early_stopping(config):
                 self.counter = 0
 
         def save_checkpoint(self, val_loss, model):
-            torch.save(model.state_dict(), self.path)
             if self.verbose:
                 print(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}). Saving model...')
+            save_model(model, self.path)
             self.val_loss_min = val_loss
 
     return EarlyStopping(
         patience=config.patience,
-        path=f"{config.output_dir}/best_model.pth"
+        path=os.path.join(model_save_path+ ".pth")
     )
 
 
 def setup_amp(config):
     """混合精度初始化"""
     if config.use_amp:
-        return GradScaler('cuda')
+        return GradScaler()
     return None
 
 
 def save_model(model, path):
     """保存模型（兼容多GPU）"""
+    path = path + ".pth"
     if isinstance(model, DataParallel):
         torch.save(model.module.state_dict(), path)
     else:
         torch.save(model.state_dict(), path)
-
-
-def load_model(model, path):
-    """加载模型权重（兼容多GPU）"""
-    checkpoint = torch.load(path)
-    if isinstance(model, DataParallel):
-        model.module.load_state_dict(checkpoint)
-    else:
-        model.load_state_dict(checkpoint)
-    return model

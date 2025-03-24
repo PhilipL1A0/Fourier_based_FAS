@@ -1,3 +1,4 @@
+from asyncio import FastChildWatcher
 import os
 import json
 import torch
@@ -11,14 +12,17 @@ class FourierDataset(Dataset):
     def __init__(self, 
                  split_name,  # 数据集划分名称（'train', 'val', 'test'）
                  data_dir="dataset",  # 预处理后的数据根目录
-                 stats_file="configs/dataset_stats.json",  # 统计信息文件路径
-                 split_file="configs/splits.json"):  # 数据划分文件路径
+                 config_dir="configs",  # 配置文件目录
+                 add_noise=False,  # 是否添加噪声
+                 noise_std=0.01):  # 数据划分文件路径
         self.split_name = split_name
         self.data_dir = data_dir
-        self.stats = json.load(open(stats_file))
-        
+        self.add_noise = add_noise
+        self.noise_std = noise_std
+        self.stats = json.load(open(config_dir + "/dataset_stats.json", "r"))
+
         # 加载数据划分路径
-        with open(split_file, 'r') as f:
+        with open(config_dir + "/splits.json", 'r') as f:
             splits = json.load(f)
         self.image_paths = splits[split_name][0]
         self.labels = splits[split_name][1]
@@ -46,6 +50,12 @@ class FourierDataset(Dataset):
             f"{os.path.basename(spatial_path).split('.')[0]}.npy"
         )
         freq_data = np.load(freq_path)
+
+        # 为频域特征添加随机噪声
+        if self.add_noise and self.split_name == 'train':  # 仅对训练集添加噪声
+            noise = np.random.normal(0, self.noise_std, freq_data.shape)
+            freq_data = freq_data + noise
+
         freq_tensor = torch.from_numpy(freq_data).float().unsqueeze(0)  # 添加通道维度
         
         return {

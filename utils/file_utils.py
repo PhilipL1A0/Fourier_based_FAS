@@ -1,3 +1,4 @@
+# file_utils.py： 用于文件操作的工具函数
 import os
 import csv
 import cv2
@@ -16,7 +17,6 @@ def save_csv(csv_path, data):
         csv_write.writerow(data)
     f.close()
 
-
 def read_csv(csv_path):
     '''
     读取csv文件的内容,并且返回
@@ -30,7 +30,6 @@ def read_csv(csv_path):
 
     return data_list
 
-
 def read_txt(txt_path):
     '''
     读取txt 文件
@@ -43,12 +42,6 @@ def read_txt(txt_path):
     for index in range(len(data)):
         data[index] = data[index][:-1]
     return data
-
-
-'''
-数据和数据集的一些预处理操作,包括但不限于:从视频中获取图像,人脸检测,利用原始数据集,生成满足条件的数据集.
-'''
-
 
 def video_to_frames(pathIn='',
                     pathOut='',
@@ -191,7 +184,6 @@ def video_to_frames(pathIn='',
                         cv2.imwrite(os.path.join(pathOut, "{}_{:06d}.bmp".format(output_prefix, count + 1)), image,
                                     [int(cv2.IMWRITE_JPEG_QUALITY), jpg_quality])  # save frame as JPEG file
                         count = count + 1
-
 
 def frame_to_face(frame_dir, face_dir, model_name, normal_size=None, save_mode='.jpg'):
     '''

@@ -1,3 +1,5 @@
 data/
-logs/
-out/
+outputs/
+__pycache__/
+*.pyc
+*.pyo

@@ -1,5 +1,4 @@
 import os
-from tracemalloc import start
 import cv2
 import json
 import time
@@ -131,7 +130,7 @@ def main():
                      desc="Processing Splits", 
                      ncols=100):
         spatial_paths = splits[split][0]
-        # generate_frequency_features(spatial_paths, output_freq_dir)
+        generate_frequency_features(spatial_paths, output_freq_dir)
     
     # 计算空域和频域的均值和标准差
     train_paths = splits['train'][0]

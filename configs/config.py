@@ -1,6 +1,4 @@
 # config.py
-from sympy import use
-
 
 class Config:
     # 训练基础配置
@@ -23,7 +21,7 @@ class Config:
     # 数据路径配置
     model_name = f"{backbone}_{epochs}_{batch_size}_{lr}_{epochs}.pth"
     data_dir = "/media/main/lzf/FBFAS/data/dataset"
-    output_dir = "/media/main/lzf/FBFAS/output"
+    output_dir = "/media/main/lzf/FBFAS/outputs"
 
     # 训练策略开关
     use_early_stopping = True  # 早停

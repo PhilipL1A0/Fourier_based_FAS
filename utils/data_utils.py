@@ -5,13 +5,12 @@ import numpy as np
 import torchvision.transforms as ts
 from PIL import Image
 from torch.utils.data import Dataset
-from sklearn.metrics import confusion_matrix, accuracy_score, f1_score
 
 
 class FourierDataset(Dataset):
     def __init__(self, 
                  split_name,  # 数据集划分名称（'train', 'val', 'test'）
-                 data_dir="preprocessed",  # 预处理后的数据根目录
+                 data_dir="dataset",  # 预处理后的数据根目录
                  stats_file="configs/dataset_stats.json",  # 统计信息文件路径
                  split_file="configs/splits.json"):  # 数据划分文件路径
         self.split_name = split_name
@@ -73,17 +72,3 @@ def get_transform(category, mean, std):
             ts.ToTensor(),
             ts.Normalize(mean, std)
         ])
-
-def compute_metrics(targets, preds):
-    cm = confusion_matrix(targets, preds)
-    tp, fp, fn, tn = cm[1,1], cm[0,1], cm[1,0], cm[0,0]
-    metrics = {
-        'accuracy': accuracy_score(targets, preds),
-        'precision': tp / (tp + fp + 1e-8),
-        'recall': tp / (tp + fn + 1e-8),
-        'F1': f1_score(targets, preds),
-        'FAR': fp / (fp + tn + 1e-8),
-        'FRR': fn / (tp + fn + 1e-8),
-        'HTER': (fp/(fp+tn) + fn/(tp+fn))/2 if (fp+tn and tp+fn) else 0
-    }
-    return metrics

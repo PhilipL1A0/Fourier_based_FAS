@@ -2,7 +2,19 @@
 import os
 import csv
 import cv2
+import json
 from .face_detection import FaceDection
+
+def save_config(config, save_path):
+    """
+    保存配置文件为 JSON 格式。
+
+    Args:
+        config (Config): 配置对象。
+        save_path (str): 保存路径。
+    """
+    with open(save_path, 'w') as f:
+        json.dump(vars(config), f, indent=4)
 
 def save_csv(csv_path, data):
     '''

@@ -1,50 +1,47 @@
 # config.py
-
-from sympy import use
-
-
 class Config:
-    # 训练基础配置
-    backbone = "resnet"          # 模型主干
-    block_type = "residual"      # 基础块类型（residual）
-    use_attention = True         # 启用注意力模块
-    attention_type = "cbam"      # 注意力类型
-    num_blocks = [2, 2, 2, 2]    # 残差块配置
-    num_classes = 2              # 二分类任务
-    input_channels = 1           # 频域数据通道数（假设是单通道，如幅度谱）
-    attention_type = "cbam"
-    loss_func = "focal_loss"  # 损失函数（交叉熵）,可选择focal_loss
+    def __init__(self):
+        # 训练基础配置
+        self.backbone = "resnet"
+        self.block_type = "residual"
+        self.use_attention = True
+        self.attention_type = "cbam"
+        self.num_blocks = [2, 2, 2, 2]
+        self.num_classes = 2
+        self.input_channels = 1
+        self.loss_func = "focal_loss"
 
-    # 训练参数配置
-    batch_size = 32
-    epochs = 100
-    lr = 1e-3
-    weight_decay = 1e-4
-    num_workers = 4
+        # 训练参数配置
+        self.batch_size = 32
+        self.epochs = 100
+        self.lr = 1e-3
+        self.weight_decay = 1e-4
+        self.num_workers = 4
 
-    # 数据路径配置
-    data_dir = "/media/main/lzf/FBFAS/data/dataset"
-    output_dir = "/media/main/lzf/FBFAS/outputs"
+        # 数据路径配置
+        self.data_dir = "/media/main/lzf/FBFAS/data/dataset"
+        self.output_dir = "/media/main/lzf/FBFAS/outputs"
 
-    # 训练策略开关
-    use_early_stopping = True  # 早停
-    use_multi_gpu = True       # 多GPU
-    use_amp = True             # 混合精度
-    use_warmup = True          # Warmup学习率
-    use_lr_cos = True          # 余弦退火学习率
-    use_augmentation = True    # 数据增强
+        # 训练策略开关
+        self.use_early_stopping = True
+        self.use_multi_gpu = True
+        self.use_amp = True
+        self.use_warmup = True
+        self.use_lr_cos = True
+        self.use_augmentation = True
 
-    # 训练策略参数
-    patience = 10         # 早停等待次数
-    devices = [0, 1]      # 多GPU设备
-    amp_opt_level = "O1"  # 混合精度级别（如O1/O2）
-    warmup_epochs = 5     # Warmup步数
-    lr_min = 1e-6         # 最小学习率
-    lr_cycles = 1         # 余弦周期数
+        # 训练策略参数
+        self.patience = 10
+        self.devices = [0, 1]
+        self.amp_opt_level = "O1"
+        self.warmup_epochs = 5
+        self.lr_min = 1e-6
+        self.lr_cycles = 1
 
-    # 其他可选功能（可扩展）
-    use_gradient_clipping = True  # 梯度裁剪
-    clip_value = 1.0              # 裁剪值
-    use_tensorboard = True        # Tensorboard可视化
+        # 其他可选功能
+        self.use_gradient_clipping = True
+        self.clip_value = 1.0
+        self.use_tensorboard = True
 
-    model_name = f"{backbone}_L2_{epochs}_{batch_size}_{lr}_{epochs}"
+        # 模型名称
+        self.model_name = f"{self.backbone}_L2_{self.epochs}_{self.batch_size}_{self.lr}_{self.loss_func}"

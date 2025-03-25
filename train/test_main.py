@@ -29,10 +29,10 @@ def test(model_path=None):
     metrics = compute_metrics(targets, preds)
     print("Test Metrics:", metrics)
 
-    plot_confusion_matrix(targets, preds, class_names=["spoofing","living"], save_path=os.path.join(config.output_dir, "img", "cm", "test_"+config.model_name+".png"))
+    plot_confusion_matrix(targets, preds, class_names=["spoofing","living"], save_path=os.path.join(config.output_dir, "img", "test_cm", f"{config.model_name}.png"))
     
 
 
 if __name__ == "__main__":
-    model_path = "/media/main/lzf/FBFAS/outputs/model/resnet_100_32_0.001_100_1.pth"
+    model_path = "/media/main/lzf/FBFAS/outputs/model/resnet_L2_100_32_0.001_cross_entropy.pth"
     test(model_path)

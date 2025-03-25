@@ -20,18 +20,18 @@ def train():
     # 确保输出目录存在
     os.makedirs(config.output_dir, exist_ok=True)
     model_save_path = os.path.join(config.output_dir, 'model', config.model_name)
-
+    config_save_path = os.path.join(config.output_dir, "cfg", f"{config.model_name}.json")
+    
     # 设置记录文件
-    config_save_path = os.path.join(config.output_dir, f"{config.model_name}.json")
     save_config(config, config_save_path)
     logger, csv_path = setup_logger(config.output_dir, config.model_name)
 
     # 保存模型配置到日志
     logger.info("Model Configuration:")
     logger.info(f"Backbone: {config.backbone}, Attention: {config.attention_type}")
-    logger.info(f"Input Channels: {config.input_channels}, Classes: {config.num_classes}")
+    logger.info(f"Input Channels: {config.input_channels}, Dropout: True")
     logger.info(f"Learning Rate: {config.lr}, Batch Size: {config.batch_size}, Optimizer: AdamW")
-    logger.info(f"Weight Decay: {config.weight_decay}, Loss Function: CrossEntropyLoss")
+    logger.info(f"Weight Decay: {config.weight_decay}, Loss Function: {config.loss_func}")
 
     # 准备数据集
     train_data = FourierDataset(split_name='train', data_dir=config.data_dir, add_noise=config.use_augmentation)
@@ -163,7 +163,7 @@ def train():
     logger.info(metrics)
 
     # 绘制混淆矩阵
-    plot_confusion_matrix(targets, preds, class_names=["spoofing", "living"], save_path=os.path.join(config.output_dir, "img", "cm", f"train_{config.model_name}.png"))
+    plot_confusion_matrix(targets, preds, class_names=["spoofing", "living"], save_path=os.path.join(config.output_dir, "img", "train_cm", f"{config.model_name}.png"))
     logger.info("Confusion matrix plot saved.")
     logger.info("Training completed.")
     logger.handlers.clear()

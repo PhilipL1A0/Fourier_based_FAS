@@ -13,6 +13,7 @@ def save_config(config, save_path):
         config (Config): 配置对象。
         save_path (str): 保存路径。
     """
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
     with open(save_path, 'w') as f:
         json.dump(vars(config), f, indent=4)
 

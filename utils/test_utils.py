@@ -1,6 +1,5 @@
 import torch
 from tqdm import tqdm
-from torch.nn import DataParallel
 
 def load_trained_model(model, model_path, device):
     """
@@ -15,8 +14,8 @@ def load_trained_model(model, model_path, device):
         torch.nn.Module: 加载权重后的模型。
     """
     checkpoint = torch.load(model_path)
-    if any(key.startswith('module.') for key in checkpoint.keys()):
-        checkpoint = {key.replace('module.', ''): value for key, value in checkpoint.items()}
+    if not any(key.startswith('module.') for key in checkpoint.keys()):
+        checkpoint = {'module.' + key: value for key, value in checkpoint.items()}
     model.load_state_dict(checkpoint)
     model.to(device)
     model.eval()  # 设置为评估模式

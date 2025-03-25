@@ -1,13 +1,14 @@
 import os
 import csv
-from numpy import save
+import math
 import torch
 import logging
+import torch.nn as nn
 import torch.optim as optim
+import torch.nn.functional as F
 from torch.nn.parallel import DataParallel
 from torch.optim.lr_scheduler import LambdaLR
 from torch.amp.grad_scaler import GradScaler
-import math
 
 def setup_device(config, model):
     """设备配置（多GPU/单GPU/CPU）"""
@@ -119,7 +120,7 @@ def setup_early_stopping(config, model_save_path):
 
     return EarlyStopping(
         patience=config.patience,
-        path=os.path.join(model_save_path+ ".pth")
+        path=os.path.join(model_save_path)
     )
 
 
@@ -137,3 +138,62 @@ def save_model(model, path):
         torch.save(model.module.state_dict(), path)
     else:
         torch.save(model.state_dict(), path)
+
+
+def count_parameters(model):
+    """
+    统计模型的参数量（总参数量和可训练参数量）。
+
+    Args:
+        model (torch.nn.Module): 要统计的模型。
+
+    Returns:
+        dict: 包含总参数量和可训练参数量的字典。
+    """
+    if isinstance(model, DataParallel):  # 如果是多 GPU 模型，访问内部的模型
+        model = model.module
+
+    total_params = sum(p.numel() for p in model.parameters())  # 总参数量
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)  # 可训练参数量
+
+    return {
+        "total_params": total_params,
+        "trainable_params": trainable_params
+    }
+
+
+def get_class_weights(train_data):
+    """计算类别权重"""
+    class_count = torch.tensor([len(train_data) - sum(train_data.labels), sum(train_data.labels)]).float()
+    class_weights = class_count / class_count.sum()
+    return class_weights
+
+
+class FocalLoss(nn.Module):
+    """
+    Focal Loss 实现，用于处理类别不平衡问题。
+    Args:
+        alpha (float): 平衡因子，用于调整正负样本的权重。
+        gamma (float): 聚焦因子，用于调整难分类样本的权重。
+        reduction (str): 损失的聚合方式，支持 'mean'、'sum' 和 'none'。
+    """
+    def __init__(self, alpha=1.0, gamma=2.0, reduction='mean'):
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
+
+    def forward(self, inputs, targets):
+        # 计算交叉熵损失
+        ce_loss = F.cross_entropy(inputs, targets, reduction='none')
+        # 计算预测概率
+        pt = torch.exp(-ce_loss)
+        # 计算 Focal Loss
+        focal_loss = self.alpha * (1 - pt) ** self.gamma * ce_loss
+
+        if self.reduction == 'mean':
+            return focal_loss.mean()
+        elif self.reduction == 'sum':
+            return focal_loss.sum()
+        else:
+            return focal_loss

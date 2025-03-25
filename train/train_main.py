@@ -10,12 +10,7 @@ from torch.utils.data import DataLoader
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from configs import Config
 from models import ResNet18
-from utils import (
-    FourierDataset, 
-    plot_training_history, compute_metrics, plot_confusion_matrix,
-    setup_device, setup_optimizer, setup_scheduler, setup_early_stopping,
-    setup_amp, save_model, setup_logger
-)
+from utils import *
 
 
 def train():
@@ -26,7 +21,9 @@ def train():
     os.makedirs(config.output_dir, exist_ok=True)
     model_save_path = os.path.join(config.output_dir, 'model', config.model_name)
 
-    # 设置日志记录器和 CSV 文件
+    # 设置记录文件
+    config_save_path = os.path.join(config.output_dir, f"{config.model_name}.json")
+    save_config(config, config_save_path)
     logger, csv_path = setup_logger(config.output_dir, config.model_name)
 
     # 保存模型配置到日志
@@ -46,6 +43,12 @@ def train():
     model = ResNet18(num_classes=config.num_classes, input_channels=config.input_channels)
     model, device = setup_device(config, model)
 
+    # 统计参数量
+    param_stats = count_parameters(model)
+    logger.info(f"Total parameters: {param_stats['total_params']:,}")
+    logger.info(f"Trainable parameters: {param_stats['trainable_params']:,}")
+
+
     # 初始化优化器、调度器和早停机制
     optimizer = setup_optimizer(model, config)
     scheduler = setup_scheduler(optimizer, config)
@@ -54,10 +57,11 @@ def train():
     # 初始化混合精度
     scaler = setup_amp(config)
 
-    # 损失函数  
-    class_count = torch.tensor([len(train_data) - sum(train_data.labels), sum(train_data.labels)]).float()
-    class_weights = class_count / class_count.sum()
-    criterion = nn.CrossEntropyLoss(weight=class_weights).to(device)
+    # 损失函数
+    if config.loss_func == "cross_entropy":
+        criterion = nn.CrossEntropyLoss(weight=get_class_weights(train_data)).to(device)
+    if config.loss_func == "focal_loss":
+        criterion = FocalLoss(alpha=0.3, gamma=2.0).to(device)
 
     # 训练过程
     history = {'train_loss': [], 'val_loss': [], 'train_acc': [], 'val_acc': []}

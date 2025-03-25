@@ -1,5 +1,13 @@
 data/
 outputs/
+configs/
 __pycache__/
+.json
+.log
+.csv
+.pth
+.pt
 *.pyc
 *.pyo
+utils/data_utils.py
+train/test_main.py

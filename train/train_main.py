@@ -8,9 +8,10 @@ from datetime import datetime
 from torch.utils.data import DataLoader
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from utils import *
+from test_main import test
 from configs import Config
 from models import ResNet18
-from utils import *
 
 
 def train():
@@ -40,7 +41,11 @@ def train():
     val_loader = DataLoader(val_data, batch_size=config.batch_size, shuffle=False, num_workers=config.num_workers)
 
     # 初始化模型
-    model = ResNet18(num_classes=config.num_classes, input_channels=config.input_channels)
+    model = ResNet18(
+        num_classes=config.num_classes,
+        input_channels=config.input_channels,
+        dropout=config.dropout
+        )
     model, device = setup_device(config, model)
 
     # 统计参数量
@@ -168,5 +173,9 @@ def train():
     logger.info("Training completed.")
     logger.handlers.clear()
 
+    # 测试模型
+    if config.test_model:
+        test(model_save_path)
+
 if __name__ == "__main__":
-    train() 
+    train()

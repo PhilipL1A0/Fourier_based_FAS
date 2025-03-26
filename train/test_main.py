@@ -16,7 +16,11 @@ def test(model_path=None):
     test_loader = DataLoader(test_data, batch_size=config.batch_size, shuffle=False, num_workers=config.num_workers)
 
     # 初始化模型
-    model = ResNet18(num_classes=config.num_classes, input_channels=config.input_channels, dropout=0.5)
+    model = ResNet18(
+        num_classes=config.num_classes,
+        input_channels=config.input_channels,
+        dropout=config.dropout
+        )
     model, device = setup_device(config, model)
 
     # 加载训练好的模型
@@ -34,5 +38,5 @@ def test(model_path=None):
 
 
 if __name__ == "__main__":
-    model_path = "/media/main/lzf/FBFAS/outputs/model/resnet_L2_100_32_0.001_cross_entropy.pth"
+    model_path = "/media/main/lzf/FBFAS/outputs/model/resnet_L2_100_32_0.001_cross_entropy_NoAug.pth"
     test(model_path)

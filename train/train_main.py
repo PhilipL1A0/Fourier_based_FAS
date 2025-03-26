@@ -35,8 +35,9 @@ def train():
     logger.info(f"Weight Decay: {config.weight_decay}, Loss Function: {config.loss_func}")
 
     # 准备数据集
-    train_data = FourierDataset(split_name='train', data_dir=config.data_dir, add_noise=config.use_augmentation)
-    val_data = FourierDataset(split_name='val', data_dir=config.data_dir)
+    data_dir = os.path.join(config.data_dir, "dataset")
+    train_data = FourierDataset(split_name='train', data_dir=data_dir, add_noise=config.use_augmentation)
+    val_data = FourierDataset(split_name='val', data_dir=data_dir)
     train_loader = DataLoader(train_data, batch_size=config.batch_size, shuffle=True, num_workers=config.num_workers)
     val_loader = DataLoader(val_data, batch_size=config.batch_size, shuffle=False, num_workers=config.num_workers)
 

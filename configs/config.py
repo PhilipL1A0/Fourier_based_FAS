@@ -20,7 +20,7 @@ class Config:
         self.num_workers = 4
 
         # 数据路径配置
-        self.data_dir = "/media/main/lzf/FBFAS/data/dataset"
+        self.data_dir = "/media/main/lzf/FBFAS/data"
         self.output_dir = "/media/main/lzf/FBFAS/outputs"
 
         # 训练策略开关

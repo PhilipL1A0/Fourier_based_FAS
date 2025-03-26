@@ -12,7 +12,7 @@ def test(model_path=None):
     config = Config()
 
     # 准备测试集
-    test_data = FourierDataset(split_name='test', data_dir=config.data_dir)
+    test_data = FourierDataset(split_name='test', data_dir=f"{config.data_dir}/dataset")
     test_loader = DataLoader(test_data, batch_size=config.batch_size, shuffle=False, num_workers=config.num_workers)
 
     # 初始化模型

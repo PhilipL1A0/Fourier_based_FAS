@@ -4,6 +4,7 @@ import json
 import time
 import numpy as np
 from tqdm import tqdm
+from configs import Config
 from sklearn.model_selection import train_test_split
 
 
@@ -111,11 +112,12 @@ def generate_frequency_features(spatial_paths, output_dir):
         np.save(save_path, normalized)
 
 def main():
+    config = Config()
     data_dirs = [
-        '/media/main/lzf/FBFAS/data/FAS/CASIA',
-        '/media/main/lzf/FBFAS/data/FAS/idiap',
-        '/media/main/lzf/FBFAS/data/FAS/MSU',
-        '/media/main/lzf/FBFAS/data/FAS/OULU'
+        f"{config.data_dir}/FAS/CASIA",
+        f"{config.data_dir}/FAS/idiap",
+        f"{config.data_dir}/data/FAS/MSU",
+        f"{config.data_dir}/data/FAS/OULU"
     ]
     
     start = time.time()
@@ -123,7 +125,7 @@ def main():
     splits = split_datasets(data_dirs)
     
     # 生成频域特征并保存
-    output_freq_dir = "/media/main/lzf/FBFAS/data/dataset/frequency"
+    output_freq_dir = f"{config.data_dir}/dataset/frequency"
     
     # 添加进度条显示每个split的处理
     for split in tqdm(['train', 'val', 'test'], 

@@ -7,7 +7,7 @@ class ResNet18(nn.Module):
     """
     通用 ResNet 模型，支持动态配置残差块数量和注意力模块
     """
-    def __init__(self, input_channels=1, num_classes=2, num_blocks=[2, 2, 2, 2], use_attention=True, dropout=0.5):
+    def __init__(self, input_channels=1, num_classes=2, num_blocks=[2, 2, 2, 2], use_attention=True, dropout_rate=0):
         """
         初始化 ResNet 模型
 
@@ -16,11 +16,11 @@ class ResNet18(nn.Module):
             num_classes (int): 分类任务的类别数。
             num_blocks (list): 每个阶段的残差块数量。
             use_attention (bool): 是否启用 CBAM 注意力模块。
-            dropout (float): Dropout 概率。
+            dropout_rate (float): Dropout 概率。
         """
         super().__init__()
         self.use_attention = use_attention
-        self.dropout = dropout
+        self.dropout_rate = dropout_rate
 
         # 初始卷积层
         self.conv1 = ConvBlock(
@@ -40,7 +40,8 @@ class ResNet18(nn.Module):
 
         # 全局平均池化和全连接层
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.dropout = nn.Dropout(dropout)
+        if dropout_rate > 0:
+            self.dropout = nn.Dropout(dropout_rate)
         self.fc = nn.Linear(512, num_classes)
 
     def _make_layer(self, out_channels, num_blocks, stride):
@@ -91,7 +92,8 @@ class ResNet18(nn.Module):
 
         x = self.avgpool(x)
         x = torch.flatten(x, 1)
-        x = self.dropout(x)
+        if self.dropout_rate > 0:
+            x = self.dropout(x)
         x = self.fc(x)
         return x
 

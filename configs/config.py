@@ -9,7 +9,8 @@ class Config:
         self.num_blocks = [2, 2, 2, 2]
         self.num_classes = 2
         self.input_channels = 1
-        self.loss_func = "focal_loss"
+        self.loss_func = "cross_entropy"
+        self.dropout = 0.5
 
         # 训练参数配置
         self.batch_size = 32
@@ -42,6 +43,7 @@ class Config:
         self.use_gradient_clipping = True
         self.clip_value = 1.0
         self.use_tensorboard = True
+        self.test_model = True
 
         # 模型名称
-        self.model_name = f"{self.backbone}_L2_{self.epochs}_{self.batch_size}_{self.lr}_{self.loss_func}"
+        self.model_name = f"{self.backbone}_L2_{self.epochs}_{self.batch_size}_{self.lr}_{self.loss_func}_NoAug"

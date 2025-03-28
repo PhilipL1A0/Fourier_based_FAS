@@ -41,7 +41,7 @@ def setup_scheduler(optimizer, config):
 
 def setup_logger(output_dir, model_name):
     """
-    设置日志记录器，将日志保存到文件并输出到控制台，同时初始化 CSV 文件记录训练信息。
+    设置日志记录器，将日志保存到文件并输出到控制台。
 
     Args:
         output_dir (str): 日志文件保存的目录。
@@ -49,14 +49,12 @@ def setup_logger(output_dir, model_name):
 
     Returns:
         logging.Logger: 配置好的日志记录器。
-        str: CSV 文件路径。
     """
     os.makedirs(output_dir, exist_ok=True)
     log_path = os.path.join(output_dir, 'log', model_name + ".log")
-    csv_path = os.path.join(output_dir, 'csv', model_name + ".csv")
 
     # 创建日志记录器
-    logger = logging.getLogger("TrainingLogger")
+    logger = logging.getLogger(model_name)
     logger.setLevel(logging.INFO)
 
     # 创建文件处理器
@@ -76,13 +74,7 @@ def setup_logger(output_dir, model_name):
     logger.addHandler(file_handler)
     logger.addHandler(console_handler)
 
-    # 初始化 CSV 文件
-    if not os.path.exists(csv_path):
-        with open(csv_path, mode='w', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow(["Epoch", "Train Loss", "Train Acc", "Val Loss", "Val Acc"])
-
-    return logger, csv_path
+    return logger
 
 
 def setup_early_stopping(config, model_save_path):

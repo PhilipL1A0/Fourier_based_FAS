@@ -1,4 +1,5 @@
 # config.py
+import json
 class Config:
     def __init__(self):
         # 训练基础配置
@@ -12,16 +13,20 @@ class Config:
         self.loss_func = "cross_entropy"
         self.dropout = 0.5
 
+        # 数据集配置
+        self.dataset = "CASIA" # "CASIA", "idiap", "MSU", "OULU", "all"
+
         # 训练参数配置
         self.batch_size = 32
-        self.epochs = 100
-        self.lr = 1e-3
+        self.epochs = 250
+        self.lr = 5e-4
         self.weight_decay = 1e-4
         self.num_workers = 4
 
         # 数据路径配置
-        self.data_dir = "/media/main/lzf/FBFAS/data"
-        self.output_dir = "/media/main/lzf/FBFAS/outputs"
+        self.base_dir = "/media/main/lzf/FBFAS"
+        self.data_dir = f"{self.base_dir}/datasets"
+        self.output_dir = f"{self.base_dir}/output"
 
         # 训练策略开关
         self.use_early_stopping = True
@@ -46,4 +51,5 @@ class Config:
         self.test_model = True
 
         # 模型名称
-        self.model_name = f"{self.backbone}_L2_{self.epochs}_{self.batch_size}_{self.lr}_{self.loss_func}_NoAug"
+        self.model_name = f"{self.dataset}_{self.lr}_{self.loss_func}_Aug"
+        # self.model_name = "resnet_L2_100_32_0.001_100"

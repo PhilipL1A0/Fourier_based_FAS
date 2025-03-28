@@ -25,8 +25,9 @@ class Config:
 
         # 数据路径配置
         self.base_dir = "/media/main/lzf/FBFAS"
-        self.data_dir = f"{self.base_dir}/datasets"
+        self.data_dir = f"{self.base_dir}/data"
         self.output_dir = f"{self.base_dir}/output"
+        self.compress_data = False
 
         # 训练策略开关
         self.use_early_stopping = True

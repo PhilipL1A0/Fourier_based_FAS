@@ -11,6 +11,7 @@ class FourierDataset(Dataset):
     def __init__(self, 
                  split_name,  # 数据集划分名称（'train', 'val', 'test'）
                  data_dir="dataset",  # 预处理后的数据根目录
+                 compress_data=False,  # 是否压缩数据
                  config_dir="configs",  # 配置文件目录
                  dataset_name=None,    # 数据集名称，如"CASIA", "idiap"等
                  add_noise=False,  # 是否添加噪声
@@ -68,15 +69,14 @@ class FourierDataset(Dataset):
         dataset_name = self.dataset_name if self.dataset_name else ""
         base_name = os.path.basename(spatial_path).split('.')[0]
         
-        # 读取预生成的频域特征
-        freq_path = os.path.join(
-            self.data_dir, 
-            "frequency",
-            dataset_name,  # 按数据集名称组织
-            f"{base_name}.npy"
-        )
-        
-        freq_data = np.load(freq_path)
+        # 尝试读取压缩格式
+        if self.compress_data:
+            freq_path = os.path.join(self.data_dir, "frequency", dataset_name, f"{base_name}.npz")
+            freq_data = np.load(freq_path)['data']
+        else:
+        # 尝试读取非压缩格式
+            freq_path = os.path.join(self.data_dir, "frequency", dataset_name, f"{base_name}.npy")
+            freq_data = np.load(freq_path)
 
         # 为频域特征添加随机噪声
         if self.add_noise and self.split_name == 'train':  # 仅对训练集添加噪声

@@ -107,12 +107,25 @@ def compute_mean_std(paths, is_spatial=True):
 
     return mean.tolist(), std.tolist()
 
-def generate_frequency_features(dataset_name, spatial_paths, output_base_dir):
-    """按数据集生成频域特征"""
+def generate_frequency_features(dataset_name, spatial_paths, output_base_dir, 
+                               compress_data=True, precision="float32"):
+    """
+    按数据集生成频域特征，优化存储空间
+    
+    参数:
+        dataset_name: 数据集名称
+        spatial_paths: 空域图像路径
+        output_base_dir: 输出目录
+        compress_data: 是否使用压缩存储
+        precision: 数据精度 ("float16", "float32")
+    """
     output_dir = os.path.join(output_base_dir, dataset_name)
     os.makedirs(output_dir, exist_ok=True)
     
     skipped_files = 0
+    total_original_size = 0
+    total_optimized_size = 0
+    
     for path in tqdm(spatial_paths, 
                     desc=f"Generating Frequency Features for {dataset_name}", 
                     ncols=100, 
@@ -133,14 +146,48 @@ def generate_frequency_features(dataset_name, spatial_paths, output_base_dir):
             log_magnitude = np.log(1 + magnitude_shift)
             normalized = (log_magnitude - log_magnitude.min()) / (log_magnitude.max() - log_magnitude.min() + 1e-8)
             
-            # 保存为.npy文件
+            # 计算原始大小（使用float64）
+            original_data = normalized.copy()
             base_name = os.path.basename(path).split('.')[0]
-            save_path = os.path.join(output_dir, f"{base_name}.npy")
-            np.save(save_path, normalized)
+            temp_path = os.path.join(output_dir, f"{base_name}_temp.npy")
+            np.save(temp_path, original_data)
+            original_size = os.path.getsize(temp_path)
+            total_original_size += original_size
+            os.remove(temp_path)
+            
+            # 降低精度
+            if precision == "float16":
+                normalized = normalized.astype(np.float16)
+            elif precision == "float32":
+                normalized = normalized.astype(np.float32)
+            
+            # 保存为优化格式
+            base_name = os.path.basename(path).split('.')[0]
+            
+            if compress_data:
+                # 使用压缩存储
+                save_path = os.path.join(output_dir, f"{base_name}.npz")
+                np.savez_compressed(save_path, data=normalized)
+            else:
+                save_path = os.path.join(output_dir, f"{base_name}.npy")
+                np.save(save_path, normalized)
+            
+            # 计算优化后的大小
+            optimized_size = os.path.getsize(save_path)
+            total_optimized_size += optimized_size
+            
         except Exception as e:
             print(f"Error processing {path}: {str(e)}")
             skipped_files += 1
             continue
+    
+    # 计算总节省空间百分比
+    if total_original_size > 0:
+        saved_percent = (1 - total_optimized_size / total_original_size) * 100
+        print(f"Dataset: {dataset_name}")
+        print(f"Storage optimization: {saved_percent:.2f}% space saved")
+        print(f"Original size: {total_original_size/1024/1024:.2f} MB")
+        print(f"Optimized size: {total_optimized_size/1024/1024:.2f} MB")
     
     if skipped_files > 0:
         print(f"Warning: Skipped {skipped_files} files when processing {dataset_name}")
@@ -178,7 +225,13 @@ def main():
                              desc=f"Processing {dataset_name} splits", 
                              ncols=100):
             spatial_paths = splits[split_name][0]
-            freq_dir = generate_frequency_features(dataset_name, spatial_paths, output_freq_base_dir)
+            freq_dir = generate_frequency_features(
+                dataset_name,
+                spatial_paths,
+                output_freq_base_dir,
+                compress_data=True,
+                precision="float32"
+                )
             
             # 只对训练集计算统计信息
             if split_name == 'train':

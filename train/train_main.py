@@ -1,11 +1,8 @@
 import os
 import sys
-import csv
 import torch
 import torch.nn as nn
 from tqdm import tqdm
-from datetime import datetime
-from torch.utils.data import DataLoader
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from utils import *
@@ -25,35 +22,44 @@ def train():
     
     # 设置记录文件
     save_config(config, config_save_path)
-    logger, csv_path = setup_logger(config.output_dir, config.model_name)
+    logger = setup_logger(config.output_dir, config.model_name)
 
     # 保存模型配置到日志
     logger.info("Model Configuration:")
     logger.info(f"Backbone: {config.backbone}, Attention: {config.attention_type}")
-    logger.info(f"Input Channels: {config.input_channels}, Dropout: True")
+    logger.info(f"Input Channels: {config.input_channels}, Dropout: {config.dropout}")
     logger.info(f"Learning Rate: {config.lr}, Batch Size: {config.batch_size}, Optimizer: AdamW")
     logger.info(f"Weight Decay: {config.weight_decay}, Loss Function: {config.loss_func}")
-
+    
+    # 数据集信息日志
+    if config.dataset == "all":
+        logger.info("Dataset: ALL (混合训练模式)")
+    else:
+        logger.info(f"Dataset: {config.dataset}")
+    
     # 准备数据集
-    data_dir = os.path.join(config.data_dir, "dataset")
-    train_data = FourierDataset(split_name='train', data_dir=data_dir, add_noise=config.use_augmentation)
-    val_data = FourierDataset(split_name='val', data_dir=data_dir)
-    train_loader = DataLoader(train_data, batch_size=config.batch_size, shuffle=True, num_workers=config.num_workers)
-    val_loader = DataLoader(val_data, batch_size=config.batch_size, shuffle=False, num_workers=config.num_workers)
+    train_loader = load_dataset(config, 'train')
+    # 验证集
+    val_loader = load_dataset(config, 'val')
+    
+    # 数据集加载完成的日志
+    if config.dataset == "all":
+        logger.info(f"成功加载混合数据集: 训练集大小 {len(train_loader.dataset)} 样本")
+    else:
+        logger.info(f"成功加载数据集 {config.dataset}: 训练集大小 {len(train_loader.dataset)} 样本")
 
     # 初始化模型
     model = ResNet18(
         num_classes=config.num_classes,
         input_channels=config.input_channels,
-        dropout=config.dropout
-        )
+        dropout_rate=config.dropout
+    )
     model, device = setup_device(config, model)
 
     # 统计参数量
     param_stats = count_parameters(model)
     logger.info(f"Total parameters: {param_stats['total_params']:,}")
     logger.info(f"Trainable parameters: {param_stats['trainable_params']:,}")
-
 
     # 初始化优化器、调度器和早停机制
     optimizer = setup_optimizer(model, config)
@@ -63,20 +69,25 @@ def train():
     # 初始化混合精度
     scaler = setup_amp(config)
 
-    # 损失函数
+    # 损失函数 - 针对混合数据集计算类权重
     if config.loss_func == "cross_entropy":
-        criterion = nn.CrossEntropyLoss(weight=get_class_weights(train_data)).to(device)
-    if config.loss_func == "focal_loss":
+        criterion = nn.CrossEntropyLoss(weight=get_class_weights(train_loader.dataset)).to(device)
+    elif config.loss_func == "focal_loss":
         criterion = FocalLoss(alpha=0.3, gamma=2.0).to(device)
+    else:
+        logger.info(f"未知损失函数: {config.loss_func}，使用默认CrossEntropy")
+        criterion = nn.CrossEntropyLoss().to(device)
 
     # 训练过程
     history = {'train_loss': [], 'val_loss': [], 'train_acc': [], 'val_acc': []}
+    
     for epoch in range(config.epochs):
         logger.info(f"Epoch {epoch + 1}/{config.epochs}")
 
         # 训练阶段
         model.train()
         train_loss, correct, total = 0.0, 0, 0
+        
         for batch in tqdm(train_loader, desc=f"Training Epoch {epoch + 1}", ncols=100):
             inputs, labels = batch['freq'].to(device), batch['label'].to(device)
 
@@ -113,6 +124,7 @@ def train():
         # 验证阶段
         model.eval()
         val_loss, correct, total = 0.0, 0, 0
+        
         with torch.no_grad():
             for batch in tqdm(val_loader, desc=f"Validating Epoch {epoch + 1}", ncols=100):
                 inputs, labels = batch['freq'].to(device), batch['label'].to(device)
@@ -130,11 +142,6 @@ def train():
         history['val_acc'].append(val_acc)
 
         logger.info(f"Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.4f}")
-
-        # 保存到 CSV 文件
-        with open(csv_path, mode='a', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow([datetime.now().strftime("%Y-%m-%d %H:%M:%S"), epoch + 1, train_loss, train_acc, val_loss, val_acc])
 
         # 学习率调度
         scheduler.step()
@@ -176,7 +183,7 @@ def train():
 
     # 测试模型
     if config.test_model:
-        test(model_save_path)
+        test()
 
 if __name__ == "__main__":
     train()

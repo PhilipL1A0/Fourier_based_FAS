@@ -7,19 +7,22 @@ from configs import Config
 from models import ResNet18
 from utils import *
 
-def test(model_path=None):
+def test():
     # 初始化配置
     config = Config()
+    model_path = os.path.join(config.output_dir, 'model', f"{config.model_name}.pth")
+    logger = setup_logger(config.output_dir, config.model_name)
 
     # 准备测试集
-    test_data = FourierDataset(split_name='test', data_dir=f"{config.data_dir}/dataset")
-    test_loader = DataLoader(test_data, batch_size=config.batch_size, shuffle=False, num_workers=config.num_workers)
+    logger.info(f"Dataset: {config.dataset}")
+    test_loader = load_dataset(config, 'test')
+    logger.info(f"成功加载测试集: 测试集大小 {len(test_loader.dataset)} 样本")
 
     # 初始化模型
     model = ResNet18(
         num_classes=config.num_classes,
         input_channels=config.input_channels,
-        dropout=config.dropout
+        dropout_rate=config.dropout
         )
     model, device = setup_device(config, model)
 
@@ -31,12 +34,13 @@ def test(model_path=None):
 
     # 评估模型
     metrics = compute_metrics(targets, preds)
-    print("Test Metrics:", metrics)
+    logger.info("Test Metrics:")
+    logger.info(metrics)
 
     plot_confusion_matrix(targets, preds, class_names=["spoofing","living"], save_path=os.path.join(config.output_dir, "img", "test_cm", f"{config.model_name}.png"))
+    logger.info("Confusion matrix plot saved.")
+    logger.info("Test finished.")
     
-
-
+    
 if __name__ == "__main__":
-    model_path = "/media/main/lzf/FBFAS/outputs/model/resnet_L2_100_32_0.001_cross_entropy_NoAug.pth"
-    test(model_path)
+    test()

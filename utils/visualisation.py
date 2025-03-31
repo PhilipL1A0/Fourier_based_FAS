@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.metrics import confusion_matrix, accuracy_score, f1_score
+from sklearn.metrics import confusion_matrix, accuracy_score, f1_score, roc_curve, auc
 
 def plot_training_history(history, save_path=None):
     """
@@ -109,3 +109,120 @@ def plot_confusion_matrix(targets, preds, class_names, save_path=None):
         print(f"Confusion matrix saved to {save_path}")
     else:
         plt.show()
+
+
+def plot_roc_curve(targets, probs, save_path=None):
+    """
+    绘制ROC曲线并计算AUC值。
+
+    Args:
+        targets (list): 真实标签，二分类(0,1)。
+        probs (list): 预测为正类(1)的概率值。
+        save_path (str, optional): 保存图片的路径。如果为 None，则直接显示图片。
+
+    Returns:
+        float: AUC值
+    """
+    # 确保输入类型正确
+    targets = np.array(targets)
+    probs = np.array(probs)
+    
+    # 计算ROC曲线的点
+    fpr, tpr, thresholds = roc_curve(targets, probs)
+    roc_auc = auc(fpr, tpr)
+    
+    # 绘制ROC曲线
+    plt.figure(figsize=(8, 6))
+    plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC_Curve (AUC = {roc_auc:.4f})')
+    plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--', label='Random Guessing')
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('ROC Curve')
+    plt.legend(loc="lower right")
+    plt.grid(True, linestyle='--', alpha=0.6)
+    
+    if save_path:
+        plt.savefig(save_path)
+        print(f"ROC曲线已保存至 {save_path}")
+    else:
+        plt.show()
+    
+    plt.close()
+    
+    return roc_auc
+
+
+def plot_precision_recall_curve(targets, probs, save_path=None):
+    """
+    绘制精确率-召回率曲线。
+
+    Args:
+        targets (list): 真实标签，二分类(0,1)。
+        probs (list): 预测为正类(1)的概率值。
+        save_path (str, optional): 保存图片的路径。如果为 None，则直接显示图片。
+        
+    Returns:
+        float: 平均精确率(AP)值
+    """
+    from sklearn.metrics import precision_recall_curve, average_precision_score
+    
+    # 计算精确率-召回率曲线
+    precision, recall, _ = precision_recall_curve(targets, probs)
+    ap_score = average_precision_score(targets, probs)
+    
+    # 绘制精确率-召回率曲线
+    plt.figure(figsize=(8, 6))
+    plt.plot(recall, precision, color='blue', lw=2, label=f'PR_Curve (AP = {ap_score:.4f})')
+    plt.fill_between(recall, precision, alpha=0.2, color='blue')
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('Recall')
+    plt.ylabel('Precision')
+    plt.title('PR Curve')
+    plt.legend(loc="lower left")
+    plt.grid(True, linestyle='--', alpha=0.6)
+    
+    if save_path:
+        plt.savefig(save_path)
+        print(f"PR曲线已保存至 {save_path}")
+    else:
+        plt.show()
+    
+    plt.close()
+    
+    return ap_score
+
+
+def advanced_evaluation_plots(targets, probs, save_dir=None, filename_prefix=''):
+    """
+    生成一系列高级评估图表（ROC曲线、PR曲线）。
+
+    Args:
+        targets (list): 真实标签列表。
+        probs (list): 预测概率列表。
+        save_dir (str): 保存图表的目录。
+        filename_prefix (str): 文件名前缀。
+
+    Returns:
+        dict: 包含各种评估指标的字典。
+    """
+    import os
+    
+    if save_dir:
+        os.makedirs(save_dir, exist_ok=True)
+    
+    results = {}
+    
+    # ROC曲线和AUC
+    roc_path = os.path.join(save_dir, "roc", f"{filename_prefix}.png") if save_dir else None
+    roc_auc = plot_roc_curve(targets, probs, save_path=roc_path)
+    results['auc'] = roc_auc
+    
+    # 精确率-召回率曲线和AP
+    pr_path = os.path.join(save_dir, "pr", f"{filename_prefix}.png") if save_dir else None
+    ap_score = plot_precision_recall_curve(targets, probs, save_path=pr_path)
+    results['ap'] = ap_score
+    
+    return results

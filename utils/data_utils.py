@@ -1,180 +1,225 @@
 import os
 import json
+from cv2 import resize
 import torch
 import numpy as np
 from PIL import Image
 import torchvision.transforms as ts
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader, ConcatDataset
 
 
-class FourierDataset(Dataset):
-    def __init__(self, 
-                 split_name,  # 数据集划分名称（'train', 'val', 'test'）
-                 data_dir="dataset",  # 预处理后的数据根目录
-                 compress_data=False,  # 是否压缩数据
-                 config_dir="configs",  # 配置文件目录
-                 dataset_name=None,    # 数据集名称，如"CASIA", "idiap"等
-                 add_noise=False,  # 是否添加噪声
-                 noise_std=0.01):  # 噪声标准差
+class FASDataset(Dataset):
+    """
+    人脸反欺骗数据集：支持空域、频域和多通道模式
+    """
+    def __init__(self, split_name, config, data_dir="dataset", config_dir="configs"):
+        # 基础配置
         self.split_name = split_name
         self.data_dir = data_dir
-        self.add_noise = add_noise
-        self.noise_std = noise_std
-        self.dataset_name = dataset_name
+        self.dataset_name = config.dataset
+        self.data_mode = config.data_mode
+        self.compress_data = config.compress_data
         
-        # 加载统计信息
-        with open(config_dir + "/dataset_stats.json", "r") as f:
+        # 多通道配置 (RGB + 频域)
+        self.use_multi_channel = getattr(config, 'use_multi_channel', False)
+        
+        # 数据增强配置
+        self.use_augment = getattr(config, 'use_augment', True) and split_name == 'train'
+        self.noise_std = getattr(config, 'noise_std', 0.01)
+        
+        # 加载数据集统计信息
+        with open(f"{config_dir}/dataset_stats.json", "r") as f:
             all_stats = json.load(f)
+            self.stats = all_stats.get(self.dataset_name, list(all_stats.values())[0])
         
-        # 确保选择了正确的数据集统计信息
-        if dataset_name is not None and dataset_name in all_stats:
-            self.stats = all_stats[dataset_name]
-        else:
-            # 默认使用第一个数据集的统计信息（或可以调整为其他策略）
-            self.stats = list(all_stats.values())[0]
-            print(f"Warning: Using default dataset stats. Specified dataset '{dataset_name}' not found.")
-
-        # 加载数据划分路径
-        with open(config_dir + "/splits.json", 'r') as f:
+        # 加载数据集划分
+        with open(f"{config_dir}/splits.json", "r") as f:
             all_splits = json.load(f)
+            splits = all_splits.get(self.dataset_name, list(all_splits.values())[0])
+            self.image_paths = splits[split_name][0]
+            self.labels = splits[split_name][1]
         
-        # 确保选择了正确的数据集划分
-        if dataset_name is not None and dataset_name in all_splits:
-            splits = all_splits[dataset_name]
-        else:
-            # 默认使用第一个数据集的划分（或可以调整为其他策略）
-            splits = list(all_splits.values())[0]
-            print(f"Warning: Using default dataset splits. Specified dataset '{dataset_name}' not found.")
+        # 创建变换
+        self._create_transforms()
+    
+    def _create_transforms(self):
+        """创建数据变换，区分增强和非增强情况"""
+        mean, std = self.stats['spatial']['mean'], self.stats['spatial']['std']
+        
+        # 空域和频域使用不同的变换
+        if self.use_augment:
+            self.spatial_transform = ts.Compose([
+                ts.Resize((112, 112)),
+                ts.RandomResizedCrop((96, 96), scale=(0.9, 1.0)),  # 减小裁剪范围
+                ts.RandomHorizontalFlip(),  # 保留水平翻转（人脸左右是对称的）
+                ts.RandomRotation(10)  # 减小旋转角度
+            ])
             
-        self.image_paths = splits[split_name][0]
-        self.labels = splits[split_name][1]
-        
-        # 设置数据增强
-        self.transform = get_transform(split_name, 
-                                     self.stats['spatial']['mean'],
-                                     self.stats['spatial']['std'])
-
-    def __len__(self):
-        return len(self.image_paths)
-
-    def __getitem__(self, idx):
-        spatial_path = self.image_paths[idx]
-        label = self.labels[idx]
-        
-        # 读取空域图像
-        img = Image.open(spatial_path).convert("RGB")
-        img = self.transform(img)
-        
-        # 构建频域特征路径 - 考虑数据集名称组织
-        dataset_name = self.dataset_name if self.dataset_name else ""
-        base_name = os.path.basename(spatial_path).split('.')[0]
-        
-        # 尝试读取压缩格式
-        if self.compress_data:
-            freq_path = os.path.join(self.data_dir, "frequency", dataset_name, f"{base_name}.npz")
-            freq_data = np.load(freq_path)['data']
+            self.freq_transform = ts,resize((96, 96))
+            
+            # 仅用于彩色图像的颜色变换
+            self.color_transform = ts.ColorJitter(
+                brightness=0.1, contrast=0.1, saturation=0.1, hue=0.03  # 减小参数
+            )
         else:
-        # 尝试读取非压缩格式
-            freq_path = os.path.join(self.data_dir, "frequency", dataset_name, f"{base_name}.npy")
-            freq_data = np.load(freq_path)
-
-        # 为频域特征添加随机噪声
-        if self.add_noise and self.split_name == 'train':  # 仅对训练集添加噪声
-            noise = np.random.normal(0, self.noise_std, freq_data.shape)
-            freq_data = freq_data + noise
-
-        freq_tensor = torch.from_numpy(freq_data).float().unsqueeze(0)  # 添加通道维度
+            # 非增强情况下，简单调整大小
+            self.spatial_transform = self.freq_transform = ts.Resize((96, 96))
+            self.color_transform = None
         
-        return {
-            'spatial': img,
-            'freq': freq_tensor,
-            'label': torch.tensor(label, dtype=torch.long)
-        }
-
-def get_transform(category, mean, std):
-    if category == 'train':
-        return ts.Compose([
-            ts.Resize((128, 128)),
-            ts.RandomResizedCrop((96, 96), scale=(0.8, 1.0)),
-            ts.RandomHorizontalFlip(p=0.5),
-            ts.RandomVerticalFlip(),
-            ts.RandomRotation(30),
-            ts.ColorJitter(brightness=0.15, contrast=0.15, saturation=0.15, hue=0.05),
-            ts.ToTensor(),
-            ts.Normalize(mean, std)
-        ])
-    else:
-        return ts.Compose([
-            ts.Resize((96, 96)),
+        # 最终变换
+        self.final_transform = ts.Compose([
             ts.ToTensor(),
             ts.Normalize(mean, std)
         ])
     
-# 在训练脚本中加载特定数据集
-def create_dataloader(dataset, batch_size=32, is_training=True):
+    def __len__(self):
+        return len(self.image_paths)
+    
+    def __getitem__(self, idx):
+        # 准备结果字典和加载标签
+        path = self.image_paths[idx]
+        label = self.labels[idx]
+        result = {'label': torch.tensor(label, dtype=torch.long)}
+        
+        try:
+            # spatial
+            if self.data_mode in ["spatial", "both"]:
+                
+                img = Image.open(path).convert("RGB")
+                img = self.spatial_transform(img)
+                if self.color_transform and self.use_augment:
+                    img = self.color_transform(img)
+                img = self.final_transform(img)
+                
+                # 保存RGB图像
+                result['spatial'] = img
+            
+            # frequency
+            if self.data_mode in ["frequency", "both"]:
+                # 获取频域数据路径
+                base_name = os.path.basename(path).split('.')[0]
+                dataset_dir = self.dataset_name if self.dataset_name else ""
+                ext = 'npz' if self.compress_data else 'npy'
+                freq_path = os.path.join(self.data_dir, "frequency", dataset_dir, f"{base_name}.{ext}")
+                
+                # 加载频域数据
+                if self.compress_data:
+                    freq_data = np.load(freq_path)['data']
+                else:
+                    freq_data = np.load(freq_path)
+                
+                if self.use_augment:
+                    noise = np.random.normal(0, self.noise_std, freq_data.shape)
+                    freq_data = freq_data + noise
+                
+                # 转化为PIL并应用变换
+                freq_pil = self._numpy_to_pil(freq_data)
+                freq_pil = self.freq_transform(freq_pil)
+                freq_tensor = ts.ToTensor()(freq_pil)
+                result['freq'] = freq_tensor
+            
+            # 3. 创建多通道输入 (如果需要)
+            if self.use_multi_channel and self.data_mode == "both":
+                if 'spatial' in result and 'freq' in result:
+                    result['combined'] = torch.cat([result['spatial'], result['freq']], dim=0)
+        
+        except Exception as e:
+            # 异常处理：创建零张量
+            if self.data_mode in ["spatial", "both"] and 'spatial' not in result:
+                result['spatial'] = torch.zeros((3, 96, 96), dtype=torch.float)
+            
+            if self.data_mode in ["frequency", "both"] and 'freq' not in result:
+                result['freq'] = torch.zeros((1, 96, 96), dtype=torch.float)
+            
+            if self.use_multi_channel and self.data_mode == "both" and 'combined' not in result:
+                if 'spatial' in result and 'freq' in result:
+                    result['combined'] = torch.cat([result['spatial'], result['freq']], dim=0)
+                else:
+                    result['combined'] = torch.zeros((4, 96, 96), dtype=torch.float)
+            
+            print(f"Error processing {path}: {str(e)}")
+        
+        return result
+    
+    def _numpy_to_pil(self, array):
+        """将numpy数组转换为PIL图像，适用于频域数据"""
+        if array.min() < 0 or array.max() > 1:
+            # 归一化到[0,1]
+            array = (array - array.min()) / (array.max() - array.min() + 1e-8)
+        
+        # 缩放到[0,255]并转换为uint8
+        array = (array * 255).astype(np.uint8)
+        return Image.fromarray(array)
+
+
+def create_dataloader(dataset, batch_size=32, is_training=True, num_workers=4):
     """创建数据加载器"""
-    return torch.utils.data.DataLoader(
+    return DataLoader(
         dataset,
         batch_size=batch_size,
         shuffle=is_training,
-        num_workers=4,
+        num_workers=num_workers,
         pin_memory=True,
         drop_last=is_training
     )
 
+
 def load_dataset(config, category):
     """根据配置加载数据集"""
-    dataset_paths = config.get_dataset_paths()
-    dataset_stats = config.get_dataset_stats()
+    is_training = category == 'train'
     
-    add_noise = config.augment_freq_noise if category == 'train' else False
-    if_training = True if category == 'train' else False
-    # 如果使用单个数据集
+    # 单个数据集情况
     if config.dataset != "all":
-        dataset_name = config.dataset
-        
-        # 创建数据集
-        dataset = FourierDataset(
+        dataset = FASDataset(
             split_name=category,
+            config=config,
             data_dir=config.data_dir,
-            config_dir="configs",
-            dataset_name=dataset_name,
-            add_noise=add_noise,
-            # noise_std=config.noise_std
-        )
-
-        # 创建数据加载器
-        loader = create_dataloader(
-            dataset, 
-            batch_size=config.batch_size,
-            is_training=if_training
+            config_dir="configs"
         )
         
-        return loader
+        return create_dataloader(
+            dataset, 
+            batch_size=config.batch_size, 
+            is_training=is_training,
+            num_workers=config.num_workers
+        )
+    
+    # 多数据集情况 (all)
     else:
-        # 处理所有数据集的情况
         all_datasets = []
         
-        # 为每个数据集创建数据集对象
-        for dataset_name in dataset_paths.keys():
-            dataset = FourierDataset(
+        # 获取所有可用数据集
+        with open("configs/splits.json", 'r') as f:
+            all_splits = json.load(f)
+        
+        # 为每个数据集创建实例
+        for dataset_name in all_splits.keys():
+            # 创建临时配置副本
+            temp_config = copy_config(config)
+            temp_config.dataset = dataset_name
+            
+            # 创建数据集
+            dataset = FASDataset(
                 split_name=category,
+                config=temp_config,
                 data_dir=config.data_dir,
-                config_dir="configs",
-                dataset_name=dataset_name,
-                add_noise=add_noise,
-                # noise_std=config.noise_std
+                config_dir="configs"
             )
             
             all_datasets.append(dataset)
         
-            # 直接合并所有数据集
-            combined_dataset = torch.utils.data.ConcatDataset(all_datasets)
-            
-            loader = create_dataloader(
-                combined_dataset, 
-                batch_size=config.batch_size,
-                is_training=if_training
-            )
+        # 合并所有数据集
+        combined_dataset = ConcatDataset(all_datasets)
+        
+        return create_dataloader(
+            combined_dataset, 
+            batch_size=config.batch_size, 
+            is_training=is_training,
+            num_workers=config.num_workers
+        )
 
-            return loader
+
+def copy_config(config):
+    """创建配置对象的副本，避免修改原始对象"""
+    import copy
+    return copy.deepcopy(config)

@@ -89,7 +89,18 @@ def train():
         train_loss, correct, total = 0.0, 0, 0
         
         for batch in tqdm(train_loader, desc=f"Training Epoch {epoch + 1}", ncols=100):
-            inputs, labels = batch['freq'].to(device), batch['label'].to(device)
+            # 根据配置选择输入数据
+            if config.use_multi_channel and config.data_mode == "both":
+                inputs = batch['combined'].to(device)
+            elif config.data_mode == "spatial":
+                inputs = batch['spatial'].to(device)
+            elif config.data_mode == "frequency":
+                inputs = batch['freq'].to(device)
+            else:
+                # 默认使用频域数据
+                inputs = batch['freq'].to(device)
+                
+            labels = batch['label'].to(device)
 
             optimizer.zero_grad()
             with torch.amp.autocast(device_type='cuda' if torch.cuda.is_available() else 'cpu', enabled=config.use_amp):
@@ -127,7 +138,18 @@ def train():
         
         with torch.no_grad():
             for batch in tqdm(val_loader, desc=f"Validating Epoch {epoch + 1}", ncols=100):
-                inputs, labels = batch['freq'].to(device), batch['label'].to(device)
+                # 同样根据配置选择输入数据
+                if config.use_multi_channel and config.data_mode == "both":
+                    inputs = batch['combined'].to(device)
+                elif config.data_mode == "spatial":
+                    inputs = batch['spatial'].to(device)
+                elif config.data_mode == "frequency":
+                    inputs = batch['freq'].to(device)
+                else:
+                    # 默认使用频域数据
+                    inputs = batch['freq'].to(device)
+                    
+                labels = batch['label'].to(device)
                 outputs = model(inputs)
                 loss = criterion(outputs, labels)
 
@@ -165,7 +187,18 @@ def train():
     targets, preds = [], []
     with torch.no_grad():
         for batch in val_loader:
-            inputs, labels = batch['freq'].to(device), batch['label'].to(device)
+            # 根据配置选择输入数据
+            if config.use_multi_channel and config.data_mode == "both":
+                inputs = batch['combined'].to(device)
+            elif config.data_mode == "spatial":
+                inputs = batch['spatial'].to(device)
+            elif config.data_mode == "frequency":
+                inputs = batch['freq'].to(device)
+            else:
+                # 默认使用频域数据
+                inputs = batch['freq'].to(device)
+                
+            labels = batch['label'].to(device)
             outputs = model(inputs)
             _, predicted = outputs.max(1)
             targets.extend(labels.cpu().numpy())
@@ -176,8 +209,8 @@ def train():
     logger.info(metrics)
 
     # 绘制混淆矩阵
-    plot_confusion_matrix(targets, preds, class_names=["spoofing", "living"], save_path=os.path.join(config.output_dir, "img", "train_cm", f"{config.model_name}.png"))
-    logger.info("Confusion matrix plot saved.")
+    # plot_confusion_matrix(targets, preds, class_names=["spoofing", "living"], save_path=os.path.join(config.output_dir, "img", "train_cm", f"{config.model_name}.png"))
+    # logger.info("Confusion matrix plot saved.")
     logger.info("Training completed.")
     logger.handlers.clear()
 

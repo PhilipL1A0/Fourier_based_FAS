@@ -85,7 +85,11 @@ def compute_mean_std(paths, is_spatial=True):
             sum_squares += np.sum(img**2, axis=(0, 1))  # 每个通道的像素值平方求和
             total_pixels += h * w  # 累加总像素数
         else:
-            img = np.load(path)  # 假设频域特征以.npy格式保存
+            # 如果是npz格式
+            if path.endswith('.npz'):
+                img = np.load(path)['data']
+            else:
+                img = np.load(path)
             if img is None or img.size == 0:
                 print(f"Warning: Unable to read frequency data {path}. Skipping.")
                 continue
@@ -107,38 +111,39 @@ def compute_mean_std(paths, is_spatial=True):
 
     return mean.tolist(), std.tolist()
 
-def generate_frequency_features(dataset_name, spatial_paths, output_base_dir, 
-                               compress_data=True, precision="float32"):
+def process_image_data(dataset_name, spatial_paths, freq_output_dir, spatial_output_dir, 
+                      compress_data=True, precision="float32"):
     """
-    按数据集生成频域特征，优化存储空间
-    
-    参数:
-        dataset_name: 数据集名称
-        spatial_paths: 空域图像路径
-        output_base_dir: 输出目录
-        compress_data: 是否使用压缩存储
-        precision: 数据精度 ("float16", "float32")
+    同时处理空域和频域数据
     """
-    output_dir = os.path.join(output_base_dir, dataset_name)
-    os.makedirs(output_dir, exist_ok=True)
+    # 创建输出目录
+    freq_dataset_dir = os.path.join(freq_output_dir, dataset_name)
+    spatial_dataset_dir = os.path.join(spatial_output_dir, dataset_name)
+    os.makedirs(freq_dataset_dir, exist_ok=True)
+    os.makedirs(spatial_dataset_dir, exist_ok=True)
     
     skipped_files = 0
-    total_original_size = 0
-    total_optimized_size = 0
     
     for path in tqdm(spatial_paths, 
-                    desc=f"Generating Frequency Features for {dataset_name}", 
+                    desc=f"Processing images for {dataset_name}", 
                     ncols=100, 
                     leave=False):
         try:
-            # 生成频域特征并保存
+            # 读取图像
             img_bgr = cv2.imread(path)
-            # 检查图像是否成功读取
             if img_bgr is None:
                 print(f"Warning: Unable to read image at {path}. Skipping file.")
                 skipped_files += 1
                 continue
-                
+            
+            base_name = os.path.basename(path)
+            file_name_no_ext = os.path.splitext(base_name)[0]
+            
+            # 处理并保存空域图像
+            spatial_save_path = os.path.join(spatial_dataset_dir, base_name)
+            cv2.imwrite(spatial_save_path, img_bgr)
+            
+            # 生成并保存频域特征
             img_gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
             fft = np.fft.fft2(img_gray)
             magnitude = np.abs(fft)
@@ -146,53 +151,29 @@ def generate_frequency_features(dataset_name, spatial_paths, output_base_dir,
             log_magnitude = np.log(1 + magnitude_shift)
             normalized = (log_magnitude - log_magnitude.min()) / (log_magnitude.max() - log_magnitude.min() + 1e-8)
             
-            # 计算原始大小（使用float64）
-            original_data = normalized.copy()
-            base_name = os.path.basename(path).split('.')[0]
-            temp_path = os.path.join(output_dir, f"{base_name}_temp.npy")
-            np.save(temp_path, original_data)
-            original_size = os.path.getsize(temp_path)
-            total_original_size += original_size
-            os.remove(temp_path)
-            
             # 降低精度
             if precision == "float16":
                 normalized = normalized.astype(np.float16)
             elif precision == "float32":
                 normalized = normalized.astype(np.float32)
             
-            # 保存为优化格式
-            base_name = os.path.basename(path).split('.')[0]
-            
+            # 保存频域特征
             if compress_data:
-                # 使用压缩存储
-                save_path = os.path.join(output_dir, f"{base_name}.npz")
-                np.savez_compressed(save_path, data=normalized)
+                freq_save_path = os.path.join(freq_dataset_dir, f"{file_name_no_ext}.npz")
+                np.savez_compressed(freq_save_path, data=normalized)
             else:
-                save_path = os.path.join(output_dir, f"{base_name}.npy")
-                np.save(save_path, normalized)
-            
-            # 计算优化后的大小
-            optimized_size = os.path.getsize(save_path)
-            total_optimized_size += optimized_size
+                freq_save_path = os.path.join(freq_dataset_dir, f"{file_name_no_ext}.npy")
+                np.save(freq_save_path, normalized)
             
         except Exception as e:
             print(f"Error processing {path}: {str(e)}")
             skipped_files += 1
             continue
     
-    # 计算总节省空间百分比
-    if total_original_size > 0:
-        saved_percent = (1 - total_optimized_size / total_original_size) * 100
-        print(f"Dataset: {dataset_name}")
-        print(f"Storage optimization: {saved_percent:.2f}% space saved")
-        print(f"Original size: {total_original_size/1024/1024:.2f} MB")
-        print(f"Optimized size: {total_optimized_size/1024/1024:.2f} MB")
-    
     if skipped_files > 0:
         print(f"Warning: Skipped {skipped_files} files when processing {dataset_name}")
     
-    return output_dir
+    return freq_dataset_dir, spatial_dataset_dir
 
 def main():
     config = Config()
@@ -212,7 +193,8 @@ def main():
     splits_info = {}
     
     # 生成频域特征根目录
-    output_freq_base_dir = f"{config.data_dir}/dataset/frequency"
+    output_freq_base_dir = f"{config.data_dir}/frequency"
+    output_spacial_base_dir = f"{config.data_dir}/spatial"
     
     # 为每个数据集分别处理
     for dataset_name, splits in all_splits.items():
@@ -225,11 +207,12 @@ def main():
                              desc=f"Processing {dataset_name} splits", 
                              ncols=100):
             spatial_paths = splits[split_name][0]
-            freq_dir = generate_frequency_features(
+            freq_dir, spatial_dir = process_image_data(
                 dataset_name,
                 spatial_paths,
                 output_freq_base_dir,
-                compress_data=True,
+                output_spacial_base_dir,
+                compress_data=config.compress_data,
                 precision="float32"
                 )
             
@@ -239,8 +222,9 @@ def main():
                 spatial_mean, spatial_std = compute_mean_std(spatial_paths, is_spatial=True)
                 
                 # 频域数据路径
-                freq_paths = [os.path.join(freq_dir, f"{os.path.basename(p).split('.')[0]}.npy") 
-                            for p in spatial_paths]
+                file_type = "npz" if config.compress_data else "npy"
+                freq_paths = [os.path.join(freq_dir, f"{os.path.basename(p).split('.')[0]}.{file_type}") 
+                                for p in spatial_paths]
                 freq_mean, freq_std = compute_mean_std(freq_paths, is_spatial=False)
                 
                 # 保存统计信息
@@ -252,7 +236,7 @@ def main():
     # 保存统计信息
     os.makedirs('configs', exist_ok=True)
     with open('configs/dataset_stats.json', 'w') as f:
-        json.dump(stats, f)
+        json.dump(stats, f, indent=4)
     
     # 保存数据划分路径
     with open('configs/splits.json', 'w') as f:

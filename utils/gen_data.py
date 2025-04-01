@@ -4,11 +4,14 @@ import cv2
 import json
 import time
 import numpy as np
+import scipy as sp
+from scipy import spatial
 from tqdm import tqdm
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from configs.config import Config
 from sklearn.model_selection import train_test_split
+from utils.face_detection import FaceDection, LandmarksDetection
 
 
 def split_datasets(data_dirs, train_ratio=0.8, val_ratio=0.1, test_ratio=0.1):
@@ -111,18 +114,38 @@ def compute_mean_std(paths, is_spatial=True):
 
     return mean.tolist(), std.tolist()
 
-def process_image_data(dataset_name, spatial_paths, freq_output_dir, spatial_output_dir, 
-                      compress_data=True, precision="float32"):
+def process_image_data(dataset_name, spatial_paths, base_dir, 
+                      compress_data=True, precision="float32", 
+                      detect_face=True, face_align=False, target_size=(224, 224)):
     """
-    同时处理空域和频域数据
+    同时处理空域和频域数据，添加人脸检测和裁剪功能
+    
+    参数:
+        dataset_name: 数据集名称
+        spatial_paths: 空域图像路径
+        base_dir: 基础目录
+        compress_data: 是否压缩频域数据
+        precision: 数据精度
+        detect_face: 是否进行人脸检测
+        face_align: 是否进行人脸对齐（需要detect_face为True）
+        target_size: 输出图像目标大小
     """
     # 创建输出目录
-    freq_dataset_dir = os.path.join(freq_output_dir, dataset_name)
-    spatial_dataset_dir = os.path.join(spatial_output_dir, dataset_name)
+    freq_dataset_dir = os.path.join(base_dir, "data", "frequency", dataset_name)
+    spatial_dataset_dir = os.path.join(base_dir, "data", "spatial", dataset_name)
     os.makedirs(freq_dataset_dir, exist_ok=True)
     os.makedirs(spatial_dataset_dir, exist_ok=True)
     
+    # 初始化人脸检测器
+    face_detector = None
+    landmarks_detector = None
+    if detect_face:
+        face_detector = FaceDection("TF", base_dir=base_dir)  # 使用TF模型效果更好
+        if face_align:
+            landmarks_detector = LandmarksDetection()
+    
     skipped_files = 0
+    face_detection_failed = 0
     
     for path in tqdm(spatial_paths, 
                     desc=f"Processing images for {dataset_name}", 
@@ -139,12 +162,32 @@ def process_image_data(dataset_name, spatial_paths, freq_output_dir, spatial_out
             base_name = os.path.basename(path)
             file_name_no_ext = os.path.splitext(base_name)[0]
             
+            # 人脸检测与裁剪
+            if detect_face and face_detector is not None:
+                face_img = face_detector.face_detect(img_bgr)
+                if face_img is None:
+                    print(f"Warning: No face detected in {path}. Using original image.")
+                    face_detection_failed += 1
+                    face_img = img_bgr  # 使用原始图像
+                else:
+                    # 调整大小使其统一
+                    face_img = cv2.resize(face_img, target_size)
+                    
+                    # 可选：人脸关键点提取和对齐
+                    if face_align and landmarks_detector is not None:
+                        try:
+                            landmarks = landmarks_detector.landmarks_detect(face_img, display=False)
+                        except Exception as e:
+                            print(f"Warning: Landmark detection failed for {path}: {e}")
+            else:
+                face_img = cv2.resize(img_bgr, target_size)  # 不进行人脸检测时也确保统一大小
+            
             # 处理并保存空域图像
             spatial_save_path = os.path.join(spatial_dataset_dir, base_name)
-            cv2.imwrite(spatial_save_path, img_bgr)
+            cv2.imwrite(spatial_save_path, face_img)
             
-            # 生成并保存频域特征
-            img_gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+            # 生成并保存频域特征 - 基于处理后的人脸图像
+            img_gray = cv2.cvtColor(face_img, cv2.COLOR_BGR2GRAY)
             fft = np.fft.fft2(img_gray)
             magnitude = np.abs(fft)
             magnitude_shift = np.fft.fftshift(magnitude)
@@ -170,8 +213,11 @@ def process_image_data(dataset_name, spatial_paths, freq_output_dir, spatial_out
             skipped_files += 1
             continue
     
+    # 统计信息
     if skipped_files > 0:
         print(f"Warning: Skipped {skipped_files} files when processing {dataset_name}")
+    if detect_face and face_detection_failed > 0:
+        print(f"Warning: Face detection failed for {face_detection_failed} images in {dataset_name}")
     
     return freq_dataset_dir, spatial_dataset_dir
 
@@ -183,6 +229,10 @@ def main():
         f"{config.data_dir}/FAS/MSU",
         f"{config.data_dir}/FAS/OULU"
     ]
+    
+    detect_face = True  # 是否进行人脸检测
+    face_align = False  # 是否进行人脸对齐 (可选)
+    target_size = (224, 224)  # 输出图像大小
     
     start = time.time()
     # 划分数据集
@@ -210,21 +260,24 @@ def main():
             freq_dir, spatial_dir = process_image_data(
                 dataset_name,
                 spatial_paths,
-                output_freq_base_dir,
-                output_spacial_base_dir,
+                base_dir=config.base_dir,
                 compress_data=config.compress_data,
-                precision="float32"
-                )
+                precision="float32",
+                detect_face=detect_face,
+                face_align=face_align,
+                target_size=target_size
+            )
             
             # 只对训练集计算统计信息
             if split_name == 'train':
-                # 计算空域统计信息
-                spatial_mean, spatial_std = compute_mean_std(spatial_paths, is_spatial=True)
+                # 计算空域统计信息 - 此处是基于处理后的图像
+                spatial_processed_paths = [os.path.join(spatial_dir, os.path.basename(p)) for p in spatial_paths]
+                spatial_mean, spatial_std = compute_mean_std(spatial_processed_paths, is_spatial=True)
                 
                 # 频域数据路径
                 file_type = "npz" if config.compress_data else "npy"
                 freq_paths = [os.path.join(freq_dir, f"{os.path.basename(p).split('.')[0]}.{file_type}") 
-                                for p in spatial_paths]
+                            for p in spatial_paths]
                 freq_mean, freq_std = compute_mean_std(freq_paths, is_spatial=False)
                 
                 # 保存统计信息

@@ -1,3 +1,4 @@
+import os
 import cv2
 import dlib
 import numpy as np
@@ -7,26 +8,26 @@ class FaceDection(object):
     提供多种人脸检测方法的实现
     '''
 
-    def __init__(self, model_name, face_max=True):
+    def __init__(self, model_name, face_max=True, base_dir="../models/FD"):
         '''
         :param model_name: 选择人脸检测的模型
         :param face_max: 返回的人脸数目,是最大的人脸还是所有人脸.目前该功能还未实现.默认只返回最大的人脸
         '''
         self.model_name = model_name
         self.face_max = face_max
-
+        self.model_dir = os.path.join(base_dir, "models", "FD")
         if model_name == "CAFFE":
-            modelFile = "../models/FD/res10_300x300_ssd_iter_140000_fp16.caffemodel"
-            configFile = "../models/FD/deploy.prototxt"
+            modelFile = os.path.join(self.model_dir, "res10_300x300_ssd_iter_140000_fp16.caffemodel")
+            configFile = os.path.join(self.model_dir, "deploy.prototxt")
             net = cv2.dnn.readNetFromCaffe(configFile, modelFile)
             self.model = net
         elif model_name == "TF":
-            modelFile = "../models/FD/opencv_face_detector_uint8.pb"
-            configFile = "../models/FD/opencv_face_detector.pbtxt"
+            modelFile = os.path.join(self.model_dir, "opencv_face_detector_uint8.pb")
+            configFile = os.path.join(self.model_dir, "opencv_face_detector.pbtxt")
             net = cv2.dnn.readNetFromTensorflow(modelFile, configFile)
             self.model = net
         else:
-            self.face_cascade = cv2.CascadeClassifier('../models/FD/haarcascade_frontalface_default.xml')
+            self.face_cascade = cv2.CascadeClassifier(f"{self.model_dir}/haarcascade_frontalface_default.xml")
 
         self.conf_threshold = 0.7
 

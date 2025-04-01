@@ -1,6 +1,5 @@
 import os
 import sys
-from torch.utils.data import DataLoader
 import torch
 from tqdm import tqdm
 
@@ -12,10 +11,12 @@ from utils import *
 def test():
     # 初始化配置
     config = Config()
+    test_model = config.test_model
     model_path = os.path.join(config.output_dir, 'model', f"{config.model_name}.pth")
     logger = setup_logger(config.output_dir, config.model_name)
 
     # 准备测试集
+    config.dataset = config.test_dataset
     logger.info(f"Dataset: {config.dataset}")
     test_loader = load_dataset(config, 'test')
     logger.info(f"成功加载测试集: 测试集大小 {len(test_loader.dataset)} 样本")
@@ -66,7 +67,7 @@ def test():
     eval_results = advanced_evaluation_plots(
         targets, probs,
         save_dir=os.path.join(config.output_dir, "img"),
-        filename_prefix=config.model_name
+        filename_prefix=test_model,
     )
     logger.info(f"Advanced evaluation metrics: AUC={eval_results['auc']:.4f}, AP={eval_results['ap']:.4f}")
     

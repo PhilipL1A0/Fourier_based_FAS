@@ -55,7 +55,7 @@ class FASDataset(Dataset):
                 ts.RandomRotation(10)  # 减小旋转角度
             ])
             
-            self.freq_transform = ts,resize((96, 96))
+            self.freq_transform = ts.Resize((96, 96))
             
             # 仅用于彩色图像的颜色变换
             self.color_transform = ts.ColorJitter(

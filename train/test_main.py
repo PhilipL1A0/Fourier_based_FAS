@@ -21,16 +21,19 @@ def test():
     test_loader = load_dataset(config, 'test')
     logger.info(f"成功加载测试集: 测试集大小 {len(test_loader.dataset)} 样本")
 
-    # 初始化模型
+    # 初始化模型 - 注意需要与训练时使用的参数一致
     model = ResNet18(
         num_classes=config.num_classes,
         input_channels=config.input_channels,
-        dropout_rate=config.dropout
-        )
+        dropout_rate=config.dropout,
+        pretrained=config.pretrained,  # 添加预训练参数
+        use_attention=config.use_attention  # 确保注意力机制配置一致
+    )
     model, device = setup_device(config, model)
 
     # 加载训练好的模型
     model = load_trained_model(model, model_path, device)
+    logger.info(f"成功加载训练好的模型: {model_path}")
 
     # 测试模型
     model.eval()
@@ -74,6 +77,6 @@ def test():
     logger.info("Test finished.")
     logger.handlers.clear()
     
-    
+        
 if __name__ == "__main__":
     test()

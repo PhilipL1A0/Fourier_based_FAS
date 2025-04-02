@@ -52,7 +52,10 @@ def train():
     model = ResNet18(
         num_classes=config.num_classes,
         input_channels=config.input_channels,
-        dropout_rate=config.dropout
+        dropout_rate=config.dropout,
+        pretrained=config.pretrained,  # 使用配置中的预训练参数
+        freeze_backbone=config.freeze_backbone,  # 是否冻结主干网络
+        freeze_layers=config.freeze_layers  # 指定要冻结的层
     )
     model, device = setup_device(config, model)
 
@@ -61,8 +64,39 @@ def train():
     logger.info(f"Total parameters: {param_stats['total_params']:,}")
     logger.info(f"Trainable parameters: {param_stats['trainable_params']:,}")
 
-    # 初始化优化器、调度器和早停机制
-    optimizer = setup_optimizer(model, config)
+    # 使用不同学习率的优化器 - 为预训练部分和新添加的分类器分别设置不同学习率
+    if config.pretrained:
+        # 区分参数组
+        backbone_params = []
+        classifier_params = []
+        
+        # 收集预训练主干和分类器的参数
+        for name, param in model.named_parameters():
+            if 'fc' in name:  # 分类器参数
+                if param.requires_grad:
+                    classifier_params.append(param)
+            else:  # 主干网络参数
+                if param.requires_grad:
+                    backbone_params.append(param)
+        
+        # 使用不同学习率
+        optimizer = torch.optim.AdamW([
+            {'params': backbone_params, 'lr': config.lr * config.backbone_lr_ratio},  # 主干网络使用较小学习率
+            {'params': classifier_params, 'lr': config.lr}  # 分类器使用完整学习率
+        ], weight_decay=config.weight_decay)
+        
+        logger.info(f"使用差异化学习率: 主干网络 LR={config.lr * config.backbone_lr_ratio}, 分类器 LR={config.lr}")
+    else:
+        # 对于非预训练模型，使用统一学习率
+        optimizer = torch.optim.AdamW(
+            model.parameters(),
+            lr=config.lr,
+            weight_decay=config.weight_decay
+        )
+        
+        logger.info(f"使用统一学习率: LR={config.lr}")
+
+    # 初始化调度器和早停机制
     scheduler = setup_scheduler(optimizer, config)
     early_stopping = setup_early_stopping(config, model_save_path)
 

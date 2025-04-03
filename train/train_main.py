@@ -1,4 +1,5 @@
 import os
+import select
 import sys
 import torch
 import torch.nn as nn
@@ -49,14 +50,8 @@ def train():
         logger.info(f"成功加载数据集 {config.dataset}: 训练集大小 {len(train_loader.dataset)} 样本")
 
     # 初始化模型
-    model = ResNet18(
-        num_classes=config.num_classes,
-        input_channels=config.input_channels,
-        dropout_rate=config.dropout,
-        pretrained=config.pretrained,  # 使用配置中的预训练参数
-        freeze_backbone=config.freeze_backbone,  # 是否冻结主干网络
-        freeze_layers=config.freeze_layers  # 指定要冻结的层
-    )
+    model = select_model(config)
+    logger.info(f"训练模型: {config.model_type}")
     model, device = setup_device(config, model)
 
     # 统计参数量

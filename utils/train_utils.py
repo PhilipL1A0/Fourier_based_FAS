@@ -6,6 +6,7 @@ import logging
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
+from models import *
 from torch.nn.parallel import DataParallel
 from torch.optim.lr_scheduler import LambdaLR
 from torch.amp.grad_scaler import GradScaler
@@ -17,6 +18,28 @@ def setup_device(config, model):
         model = DataParallel(model, device_ids=config.devices)
     model.to(device)
     return model, device
+
+
+def select_model(config):
+    """根据配置选择模型"""
+    if config.model_type == "PretrainedResNet18":
+       model = PretrainedResNet18(
+            input_channels=config.input_channels,
+            num_classes=config.num_classes,
+            use_attention=config.use_attention,
+            dropout_rate=config.dropout,
+            freeze_backbone=config.freeze_backbone,
+            freeze_layers=config.freeze_layers
+    )
+    elif config.model_type == "ResNet18":
+        model = ResNet18(
+            num_classes=config.num_classes,
+            input_channels=config.input_channels,
+            dropout_rate=config.dropout,
+            use_attention=config.use_attention
+        )
+        
+    return model
 
 
 def setup_optimizer(model, config):
@@ -123,13 +146,41 @@ def setup_amp(config):
     return None
 
 
-def save_model(model, path):
-    """保存模型（兼容多GPU）"""
-    path = path + ".pth"
-    if isinstance(model, DataParallel):
-        torch.save(model.module.state_dict(), path)
-    else:
-        torch.save(model.state_dict(), path)
+def save_model(model, save_path, optimizer=None, epoch=None, config=None):
+    """
+    保存模型权重和训练状态
+    
+    Args:
+        model (nn.Module): 模型实例
+        save_path (str): 保存路径
+        optimizer (Optimizer, optional): 优化器
+        epoch (int, optional): 当前训练轮次
+        config (Config, optional): 配置对象
+    """
+    save_path = save_path + ".pth"
+    
+    # 保存模型
+    state = {
+        'model_state_dict': model.state_dict(),
+        'model_config': {
+            'num_classes': model.num_classes if hasattr(model, 'num_classes') else None,
+            'input_channels': model.input_channels if hasattr(model, 'input_channels') else None,
+            'use_attention': model.use_attention if hasattr(model, 'use_attention') else None,
+            'dropout_rate': model.dropout_rate if hasattr(model, 'dropout_rate') else None,
+            'pretrained': model.pretrained if hasattr(model, 'pretrained') else None,
+        }
+    }
+    
+    # 添加优化器状态和当前轮次（如果提供）
+    if optimizer is not None:
+        state['optimizer_state_dict'] = optimizer.state_dict()
+    if epoch is not None:
+        state['epoch'] = epoch
+    if config is not None:
+        state['config'] = vars(config)
+    
+    # 保存到文件
+    torch.save(state, save_path)
 
 
 def count_parameters(model):

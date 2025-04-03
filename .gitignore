@@ -1,0 +1,14 @@
+__pycache__/
+*.json
+*.png
+*.log
+*.csv
+*.pth
+*.pt
+*.pyc
+*.pyo
+*.npy
+*.npz
+configs/dataset_stats.json
+.gitignore
+configs/splits.json

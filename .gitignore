@@ -9,3 +9,5 @@ __pycache__/
 *.pyo
 *.npy
 *.npz
+configs/dataset_stats.json
+configs/splits.json

@@ -1,8 +1,4 @@
 # config.py
-import json
-from xmlrpc.client import TRANSPORT_ERROR
-
-from regex import F
 class Config:
     def __init__(self):
         # 训练基础配置
@@ -15,20 +11,22 @@ class Config:
         self.input_channels = 1
         self.loss_func = "cross_entropy"
         self.dropout = 0.5
-        self.pretrained = True
+        self.model_type = "ResNet18" # "ResNet18", "PretrainedResNet18"
+        self.pretrained = True if self.model_type == "PretrainedResNet18" else False
         self.freeze_backbone = False
-        self.freeze_layers = ['conv1', 'bn1', 'relu', 'pool', 'layer1']
+        # self.freeze_layers = ['conv1', 'bn1', 'relu', 'pool', 'layer1']
+        self.freeze_layers = []
 
         # 训练参数配置
         self.batch_size = 32
         self.epochs = 300
         self.lr = 5e-4
-        self.backbone_lr_ratio = 0.1
+        self.backbone_lr_ratio = 0.5
         self.weight_decay = 1e-4
         self.num_workers = 4
 
         # 数据路径配置
-        self.base_dir = "/media/user/data4/lzf/FBFAS"
+        self.base_dir = "/media/main/lzf/FBFAS"
         self.data_dir = f"{self.base_dir}/data"
         self.dataset_dir = "/media/user/data3/lzf"
         self.output_dir = f"{self.base_dir}/outputs"
@@ -60,14 +58,14 @@ class Config:
         # 数据集配置
         self.dataset = "CASIA" # "CASIA", "idiap", "MSU", "OULU", "all"
         self.test_dataset = "CASIA"
-        self.data_mode = "both"     # "spatial", "frequency", "both"
+        self.data_mode = "frequency"     # "spatial", "frequency", "both"
         self.spatial_type = "rgb"    # "rgb", "gray"
         self.use_multi_channel = True
         self.input_channels = self._calculate_input_channels()
 
         # 模型名称
         if_aug = "Aug" if self.use_augment else "NoAug"
-        self.model_name = f"{self.dataset}_{self.data_mode}_{if_aug}_{self.lr}_{self.loss_func}"
+        self.model_name = f"new_{self.dataset}_NoAtt_{self.data_mode}_{if_aug}"
         self.test_model = f"{self.model_name}_on_{self.test_dataset}"
         # self.model_name = "CASIA_L2_cross_entropy_NoAug"
         

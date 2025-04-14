@@ -10,4 +10,5 @@ __pycache__/
 *.npy
 *.npz
 configs/dataset_stats.json
+.gitignore
 configs/splits.json

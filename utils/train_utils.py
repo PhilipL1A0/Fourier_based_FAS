@@ -1,6 +1,4 @@
 import os
-import csv
-import math
 import torch
 import logging
 import torch.nn as nn
@@ -8,8 +6,10 @@ import torch.optim as optim
 import torch.nn.functional as F
 from models import *
 from torch.nn.parallel import DataParallel
-from torch.optim.lr_scheduler import LambdaLR
+from torch.optim.lr_scheduler import LambdaLR, CosineAnnealingLR
 from torch.amp.grad_scaler import GradScaler
+from torch.optim.lr_scheduler import _LRScheduler
+import math
 
 def setup_device(config, model):
     """设备配置（多GPU/单GPU/CPU）"""
@@ -29,15 +29,69 @@ def setup_optimizer(model, config):
     )
 
 
-def setup_scheduler(optimizer, config):
-    """学习率调度器（Warmup+Cosine）"""
-    def warmup_cosine_lr(current_step):
-        if current_step < config.warmup_epochs:
-            return (current_step / config.warmup_epochs) * (config.lr - config.lr_min) + config.lr_min
+class WarmupCosineScheduler(_LRScheduler):
+    """带预热的余弦学习率调度器"""
+    
+    def __init__(self, optimizer, warmup_epochs, max_epochs, min_lr=0, last_epoch=-1):
+        """
+        初始化调度器
+        
+        Args:
+            optimizer: 优化器
+            warmup_epochs: 预热轮次数
+            max_epochs: 总训练轮次
+            min_lr: 最小学习率
+            last_epoch: 上一轮次
+        """
+        self.warmup_epochs = warmup_epochs
+        self.max_epochs = max_epochs
+        self.min_lr = min_lr
+        super(WarmupCosineScheduler, self).__init__(optimizer, last_epoch)
+
+    def get_lr(self):
+        """计算当前学习率"""
+        if self.last_epoch < self.warmup_epochs:
+            # 预热阶段 - 线性增加学习率
+            alpha = self.last_epoch / self.warmup_epochs
+            return [base_lr * alpha for base_lr in self.base_lrs]
         else:
-            progress = (current_step - config.warmup_epochs) / (config.epochs - config.warmup_epochs)
-            return config.lr_min + 0.5 * (config.lr - config.lr_min) * (1 + math.cos(math.pi * progress))
-    return LambdaLR(optimizer, lr_lambda=warmup_cosine_lr)
+            # 余弦退火阶段
+            progress = (self.last_epoch - self.warmup_epochs) / (self.max_epochs - self.warmup_epochs)
+            progress = min(1.0, progress)  # 确保不超过1
+            cosine_factor = 0.5 * (1 + math.cos(math.pi * progress))
+            
+            return [self.min_lr + (base_lr - self.min_lr) * cosine_factor 
+                    for base_lr in self.base_lrs]
+
+def setup_scheduler(optimizer, config):
+    """
+    创建学习率调度器
+    
+    Args:
+        optimizer: 优化器
+        config: 配置对象
+        
+    Returns:
+        学习率调度器
+    """
+    if config.use_warmup and config.use_lr_cos:
+        # 预热 + 余弦退火
+        return WarmupCosineScheduler(
+            optimizer,
+            warmup_epochs=config.warmup_epochs,
+            max_epochs=config.epochs,
+            min_lr=config.lr_min
+        )
+    elif config.use_lr_cos:
+        # 仅余弦退火
+        return CosineAnnealingLR(
+            optimizer,
+            T_max=config.epochs,
+            eta_min=config.lr_min
+        )
+    else:
+        # 常数学习率（不做调整）
+        return torch.optim.lr_scheduler.LambdaLR(optimizer, lambda epoch: 1.0)
 
 
 def setup_logger(output_dir, model_name):

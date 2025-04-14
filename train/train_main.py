@@ -105,16 +105,27 @@ def train():
         
         logger.info(f"使用统一学习率: {config.lr:.6f}")
 
-    # 初始化调度器和早停机制
+    # 设置学习率调度器
     scheduler = setup_scheduler(optimizer, config)
+    if config.use_warmup and config.use_lr_cos:
+        logger.info(f"使用预热({config.warmup_epochs}轮)+余弦退火学习率策略")
+    else:
+        logger.info("使用固定学习率策略")
+
+    # 设置早停和混合精度
     early_stopping = setup_early_stopping(config, model_save_path)
     scaler = setup_amp(config)
 
     # 损失函数
     if config.loss_func == "cross_entropy":
-        criterion = nn.CrossEntropyLoss(weight=get_class_weights(train_loader.dataset)).to(device)
+        class_weights = get_class_weights(train_loader.dataset)
+        logger.info(f"使用带权重的交叉熵损失，类别权重: {class_weights}")
+        criterion = nn.CrossEntropyLoss(weight=class_weights).to(device)
     elif config.loss_func == "focal_loss":
-        criterion = FocalLoss(alpha=0.3, gamma=2.0).to(device)
+        # 对于严重不平衡的数据集，Focal Loss更合适
+        class_weights = get_class_weights(train_loader.dataset)
+        criterion = FocalLoss(alpha=class_weights, gamma=2.0).to(device)
+        logger.info(f"使用Focal Loss，alpha: {class_weights}, gamma: 2.0")
     else:
         logger.warning(f"未知损失函数: {config.loss_func}，使用默认CrossEntropy")
         criterion = nn.CrossEntropyLoss().to(device)
@@ -243,12 +254,16 @@ def train():
         logger.info(f"训练 - 损失: {train_loss:.4f}, 准确率: {train_acc:.4f}")
         logger.info(f"验证 - 损失: {val_loss:.4f}, 准确率: {val_acc:.4f}")
         
-        # 学习率调度
+        # 学习率调度 - 简化调度更新
         current_lr = optimizer.param_groups[0]['lr']
         scheduler.step()
         new_lr = optimizer.param_groups[0]['lr']
+        
         if abs(current_lr - new_lr) > 1e-8:
-            logger.info(f"学习率调整: {current_lr:.6f} -> {new_lr:.6f}")
+            if config.pretrained and len(optimizer.param_groups) > 1:
+                logger.info(f"学习率调整: 主干 {optimizer.param_groups[0]['lr']:.6f}, 分类器 {optimizer.param_groups[1]['lr']:.6f}")
+            else:
+                logger.info(f"学习率调整: {new_lr:.6f}")
 
         # 早停机制
         if config.use_early_stopping:

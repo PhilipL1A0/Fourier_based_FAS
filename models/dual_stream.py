@@ -1,68 +1,36 @@
 import torch
 import torch.nn as nn
-import torchvision.models as models
-from .resnet import ResNet18
-from .components import CBAMBlock
 
 
 class DualStreamNetwork(nn.Module):
     """
     双流神经网络 - 结合空域RGB图像和频域数据
+    
+    可以直接传入预构建的网络模型作为分支，实现灵活组合
     """
-    def __init__(self, 
-                spatial_channels=3,  # RGB空域图像通道数
-                freq_channels=1,     # 频域图像通道数
-                num_classes=2,       # 分类数量
-                fusion_type='concat', # 融合类型：'concat', 'add', 'attention'
-                spatial_backbone='resnet18',  # 空域主干网络
-                freq_backbone='resnet18',     # 频域主干网络
-                pretrained=True,      # 是否使用预训练
-                use_attention=True,   # 是否使用注意力机制
-                dropout_rate=0.5,     # Dropout率
-                freeze_spatial=False, # 是否冻结空域分支
-                freeze_freq=False,    # 是否冻结频域分支
-                fusion_dropout=0.5):  # 融合层Dropout率
+    def __init__(self,
+                spatial_network,  # 空域分支网络（预构建的模型）
+                freq_network,     # 频域分支网络（预构建的模型）
+                num_classes=2,    # 分类任务的类别数
+                fusion_type='mlp', # 融合类型：'concat', 'add', 'attention', 'mlp'
+                fusion_dropout=0.5,   # 融合层Dropout率
+                feat_dim=512):        # 特征维度，默认为ResNet18最后一层的512
         super().__init__()
         
         self.fusion_type = fusion_type
-        self.use_attention = use_attention
+        self.feat_dim = feat_dim
+
+        # 保存分支网络
+        self.spatial_branch = spatial_network
+        self.freq_branch = freq_network
         
-        # 1. 初始化空域分支
-        self.spatial_branch = ResNet18(
-            input_channels=spatial_channels,
-            num_classes=num_classes,
-            pretrained=pretrained,
-            use_attention=use_attention,
-            dropout_rate=dropout_rate
-        )
+        # 删除原始分支的分类器层，融合后再放入分类器
+        if hasattr(self.spatial_branch, 'fc'):
+            self.spatial_branch.fc = nn.Identity()
+        if hasattr(self.freq_branch, 'fc'):
+            self.freq_branch.fc = nn.Identity()
         
-        # 2. 初始化频域分支
-        self.freq_branch = ResNet18(
-            input_channels=freq_channels,
-            num_classes=num_classes,
-            pretrained=pretrained,
-            use_attention=use_attention,
-            dropout_rate=dropout_rate
-        )
-        
-        # 删除原始分支的FC层，保留特征提取器
-        # 获取特征维度
-        self.feat_dim = 512  # ResNet18的最后一层特征维度
-        
-        # 删除原始分支的分类器层
-        self.spatial_branch.fc = nn.Identity()
-        self.freq_branch.fc = nn.Identity()
-        
-        # 冻结分支 (如果需要)
-        if freeze_spatial:
-            for param in self.spatial_branch.parameters():
-                param.requires_grad = False
-        
-        if freeze_freq:
-            for param in self.freq_branch.parameters():
-                param.requires_grad = False
-        
-        # 3. 初始化融合模块
+        # 融合模块
         if fusion_type == 'concat':
             # 简单拼接
             self.fusion_dim = self.feat_dim * 2
@@ -87,13 +55,24 @@ class DualStreamNetwork(nn.Module):
                 nn.Sigmoid()
             )
             self.fusion = self._attention_fusion
+        elif fusion_type == 'mlp':
+            # 多层感知机融合
+            self.fusion_dim = self.feat_dim
+            self.mlp_fusion = nn.Sequential(
+                nn.Linear(self.feat_dim * 2, self.feat_dim * 2 // 3),
+                nn.ReLU(),
+                nn.Dropout(fusion_dropout),
+                nn.Linear(self.feat_dim * 2 // 3, self.feat_dim),
+                nn.ReLU()
+            )
+            self.fusion = self._mlp_fusion
         else:
             raise ValueError(f"不支持的融合类型: {fusion_type}")
         
-        # 4. 初始化分类器
+        # 分类器
         classifier_layers = []
         
-        # 添加额外的FC层进行融合后的特征处理
+        # 添加全连接层进行融合的特征处理
         classifier_layers.append(nn.Linear(self.fusion_dim, self.fusion_dim // 2))
         classifier_layers.append(nn.ReLU())
         
@@ -119,6 +98,16 @@ class DualStreamNetwork(nn.Module):
         
         # 加权融合
         return spatial_weight * spatial_feat + freq_weight * freq_feat
+    
+    def _mlp_fusion(self, spatial_feat, freq_feat):
+        """
+        多层感知机融合空域和频域特征
+        """
+        # 拼接特征
+        combined_feat = torch.cat([spatial_feat, freq_feat], dim=1)
+        # 通过MLP进行融合
+        fused_feat = self.mlp_fusion(combined_feat)
+        return fused_feat
     
     def extract_features(self, spatial_input, freq_input):
         """
@@ -170,6 +159,8 @@ class DualStreamNetwork(nn.Module):
             fused_feat = spatial_feat + freq_feat
         elif self.fusion_type == 'attention':
             fused_feat = self._attention_fusion(spatial_feat, freq_feat)
+        elif self.fusion_type == 'mlp':
+            fused_feat = self._mlp_fusion(spatial_feat, freq_feat)
         
         # 4. 分类
         logits = self.classifier(fused_feat)

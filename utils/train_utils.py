@@ -20,28 +20,6 @@ def setup_device(config, model):
     return model, device
 
 
-def select_model(config):
-    """根据配置选择模型"""
-    if config.model_type == "PretrainedResNet18":
-       model = PretrainedResNet18(
-            input_channels=config.input_channels,
-            num_classes=config.num_classes,
-            use_attention=config.use_attention,
-            dropout_rate=config.dropout,
-            freeze_backbone=config.freeze_backbone,
-            freeze_layers=config.freeze_layers
-    )
-    elif config.model_type == "ResNet18":
-        model = ResNet18(
-            num_classes=config.num_classes,
-            input_channels=config.input_channels,
-            dropout_rate=config.dropout,
-            use_attention=config.use_attention
-        )
-        
-    return model
-
-
 def setup_optimizer(model, config):
     """初始化优化器（AdamW）"""
     return optim.AdamW(
@@ -119,7 +97,8 @@ def setup_early_stopping(config, model_save_path):
                 self.save_checkpoint(val_loss, model)
             elif score < self.best_score + 1e-7:
                 self.counter += 1
-                print(f"EarlyStopping counter: {self.counter} out of {self.patience}")
+                if self.verbose:
+                    print(f"早停计数: {self.counter}/{self.patience}")
                 if self.counter >= self.patience:
                     self.early_stop = True
             else:
@@ -129,7 +108,7 @@ def setup_early_stopping(config, model_save_path):
 
         def save_checkpoint(self, val_loss, model):
             if self.verbose:
-                print(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}). Saving model...')
+                print(f'验证损失减少 ({self.val_loss_min:.6f} -> {val_loss:.6f})，保存模型...')
             save_model(model, self.path)
             self.val_loss_min = val_loss
 

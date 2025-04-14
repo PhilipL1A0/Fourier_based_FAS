@@ -5,3 +5,4 @@ from .train_utils import *
 from .visualisation import *
 from .test_utils import *
 from .face_detection import *
+from .model_factory import *

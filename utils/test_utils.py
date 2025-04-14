@@ -34,10 +34,9 @@ def load_trained_model(model, model_path, device):
     try:
         model.load_state_dict(checkpoint, strict=True)
     except RuntimeError as e:
-        print(f"WARNING: 模型加载时出现非严格匹配: {e}")
+        print(f"警告: 模型加载时出现非严格匹配，将使用非严格模式加载")
         # 尝试非严格加载
         model.load_state_dict(checkpoint, strict=False)
-        print("已使用非严格模式加载模型权重")
     
     return model
 
@@ -48,20 +47,41 @@ def test_model(model, test_loader, device, config=None):
     targets, preds = [], []
     
     with torch.no_grad():
-        for batch in tqdm(test_loader, desc="Testing", ncols=100):
-            # 根据配置选择输入数据
-            if config and config.use_multi_channel and config.data_mode == "both":
+        for batch in tqdm(test_loader, desc="测试中", ncols=100):
+            # 确保batch中包含所需的数据键
+            has_spatial = 'spatial' in batch
+            has_freq = 'freq' in batch
+            has_combined = 'combined' in batch
+            
+            # 处理双流网络输入
+            if config.model_type == "DualStreamNetwork":
+                # 根据可用数据提供输入
+                spatial_input = batch['spatial'].to(device) if has_spatial else None
+                freq_input = batch['freq'].to(device) if has_freq else None
+                combined_input = batch['combined'].to(device) if has_combined else None
+                
+                # 确保至少有一种输入
+                if not (spatial_input is not None or freq_input is not None or combined_input is not None):
+                    raise ValueError("数据批次中缺少所需的输入: 至少需要'spatial'、'freq'或'combined'中的一种")
+                
+                # 使用灵活的前向传播
+                outputs = model(spatial_input, freq_input, combined_input)
+            # 处理单流网络输入
+            elif config and config.use_multi_channel and config.data_mode == "both":
                 inputs = batch['combined'].to(device)
+                outputs = model(inputs)
             elif config and config.data_mode == "spatial":
                 inputs = batch['spatial'].to(device)
+                outputs = model(inputs)
             elif config and config.data_mode == "frequency" or not config:
                 inputs = batch['freq'].to(device)
+                outputs = model(inputs)
             else:
                 # 默认使用频域数据
                 inputs = batch['freq'].to(device)
+                outputs = model(inputs)
             
             labels = batch['label'].to(device)
-            outputs = model(inputs)
             _, predicted = outputs.max(1)
             targets.extend(labels.cpu().numpy())
             preds.extend(predicted.cpu().numpy())

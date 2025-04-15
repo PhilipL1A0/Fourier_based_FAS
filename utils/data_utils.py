@@ -1,16 +1,16 @@
-import os
 import json
-from cv2 import resize
 import torch
 import numpy as np
 from PIL import Image
 import torchvision.transforms as ts
+import torchvision.transforms.functional as TF
 from torch.utils.data import Dataset, DataLoader, ConcatDataset
 
 
 class FASDataset(Dataset):
     """
     人脸反欺骗数据集：支持空域、频域和多通道模式
+    确保空域和频域数据的几何变换完全一致
     """
     def __init__(self, split_name, config, data_dir="dataset", config_dir="configs"):
         # 基础配置
@@ -21,10 +21,11 @@ class FASDataset(Dataset):
         self.compress_data = config.compress_data
         
         # 多通道配置 (RGB + 频域)
-        self.use_multi_channel = getattr(config, 'use_multi_channel', False)
+        self.use_multi_channel = config.use_multi_channel
         
         # 数据增强配置
-        self.use_augment = getattr(config, 'use_augment', True) and split_name == 'train'
+        self.is_training = split_name == "train"
+        self.use_augment = config.use_augment and self.is_training
         self.noise_std = getattr(config, 'noise_std', 0.01)
         
         # 加载数据集统计信息
@@ -44,33 +45,65 @@ class FASDataset(Dataset):
     
     def _create_transforms(self):
         """创建数据变换，区分增强和非增强情况"""
-        mean, std = self.stats['spatial']['mean'], self.stats['spatial']['std']
+        self.spatial_mean = self.stats['spatial']['mean']
+        self.spatial_std = self.stats['spatial']['std']
         
-        # 空域和频域使用不同的变换
+        # 为频域数据计算统计信息（如果没有，使用默认值）
+        if 'frequency' in self.stats:
+            self.freq_mean = self.stats['frequency']['mean']
+            self.freq_std = self.stats['frequency']['std']
+        else:
+            self.freq_mean, self.freq_std = 0.5, 0.5
+        
+        # 非增强情况下的基础变换
+        self.resize_transform = ts.Resize((96, 96))
+        
+        # 颜色变换（仅用于空间图像）
         if self.use_augment:
-            self.spatial_transform = ts.Compose([
-                ts.Resize((112, 112)),
-                ts.RandomResizedCrop((96, 96), scale=(0.9, 1.0)),  # 减小裁剪范围
-                ts.RandomHorizontalFlip(),  # 保留水平翻转（人脸左右是对称的）
-                ts.RandomRotation(10)  # 减小旋转角度
-            ])
-            
-            self.freq_transform = ts.Resize((96, 96))
-            
-            # 仅用于彩色图像的颜色变换
             self.color_transform = ts.ColorJitter(
-                brightness=0.1, contrast=0.1, saturation=0.1, hue=0.03  # 减小参数
+                brightness=0.1, contrast=0.1, saturation=0.1, hue=0.03
             )
         else:
-            # 非增强情况下，简单调整大小
-            self.spatial_transform = self.freq_transform = ts.Resize((96, 96))
             self.color_transform = None
         
-        # 最终变换
-        self.final_transform = ts.Compose([
-            ts.ToTensor(),
-            ts.Normalize(mean, std)
-        ])
+        # 标准化变换
+        self.spatial_normalize = ts.Normalize(self.spatial_mean, self.spatial_std)
+        self.freq_normalize = ts.Normalize(self.freq_mean, self.freq_std)
+    
+    def _compute_frequency_features(self, img_tensor):
+        """
+        计算输入图像的频域特征
+        
+        Args:
+            img_tensor: 形状为 [C, H, W] 的图像张量
+            
+        Returns:
+            频域特征张量，形状为 [1, H, W]
+        """
+        # 将 RGB 转为灰度 (对频域特征使用灰度处理更常见)
+        if img_tensor.shape[0] == 3:
+            # 使用 RGB 到灰度的标准转换公式
+            gray = 0.299 * img_tensor[0] + 0.587 * img_tensor[1] + 0.114 * img_tensor[2]
+            img = gray.unsqueeze(0)  # 添加通道维度
+        else:
+            img = img_tensor
+        
+        # 将图像转换为 numpy 进行 FFT 处理
+        img_np = img.numpy()[0]  # 移除通道维度
+        
+        # 执行二维傅里叶变换
+        f_transform = np.fft.fft2(img_np)
+        f_shift = np.fft.fftshift(f_transform)
+        
+        # 计算幅度谱（取绝对值），并应用对数变换增强可视化
+        magnitude_spectrum = np.log(np.abs(f_shift) + 1)
+        
+        # 归一化到 [0, 1] 范围
+        magnitude_spectrum = (magnitude_spectrum - magnitude_spectrum.min()) / (magnitude_spectrum.max() - magnitude_spectrum.min() + 1e-8)
+        
+        # 转回 torch tensor
+        freq_tensor = torch.from_numpy(magnitude_spectrum).float().unsqueeze(0)  # 添加通道维度
+        return freq_tensor
     
     def __len__(self):
         return len(self.image_paths)
@@ -82,43 +115,65 @@ class FASDataset(Dataset):
         result = {'label': torch.tensor(label, dtype=torch.long)}
         
         try:
-            # spatial
-            if self.data_mode in ["spatial", "both"]:
-                
-                img = Image.open(path).convert("RGB")
-                img = self.spatial_transform(img)
-                if self.color_transform and self.use_augment:
-                    img = self.color_transform(img)
-                img = self.final_transform(img)
-                
-                # 保存RGB图像
-                result['spatial'] = img
+            # 1. 加载原始图像
+            img = Image.open(path).convert("RGB")
             
-            # frequency
+            # 2. 应用几何变换 (Resize以及可能的数据增强)
+            img = self.resize_transform(img)  # 先调整大小到统一尺寸
+            
+            # 存储变换参数以保持一致性
+            i, j, h, w = 0, 0, img.height, img.width  # 默认使用完整图像
+            hflip = False
+            angle = 0
+            
+            # 应用数据增强 (如果启用)
+            if self.use_augment:
+                # 随机裁剪 (存储参数)
+                i, j, h, w = ts.RandomResizedCrop.get_params(
+                    img, scale=(0.9, 1.0), ratio=(1.0, 1.0))
+                
+                # 随机水平翻转 (存储参数)
+                hflip = torch.rand(1).item() < 0.5
+                
+                # 随机旋转角度 (存储参数)
+                angle = torch.randint(-10, 10, (1,)).item()
+            
+            # 3. 应用几何变换到图像 (裁剪、翻转、旋转)
+            img = TF.resized_crop(img, i, j, h, w, (96, 96))
+            if hflip:
+                img = TF.hflip(img)
+            if angle != 0:
+                img = TF.rotate(img, angle)
+            
+            # 4. 转换为张量 (保持几何变换后、颜色变换前的版本用于频域计算)
+            img_tensor = TF.to_tensor(img)
+            
+            # 5. 根据数据模式处理不同的数据流
+            if self.data_mode in ["spatial", "both"]:
+                # 对于空间流，应用颜色变换(如果启用)
+                spatial_img = img
+                if self.color_transform and self.use_augment:
+                    spatial_img = self.color_transform(spatial_img)
+                
+                # 转为张量并标准化
+                spatial_tensor = TF.to_tensor(spatial_img)
+                spatial_tensor = self.spatial_normalize(spatial_tensor)
+                result['spatial'] = spatial_tensor
+            
             if self.data_mode in ["frequency", "both"]:
-                # 获取频域数据路径
-                base_name = os.path.basename(path).split('.')[0]
-                dataset_dir = self.dataset_name if self.dataset_name else ""
-                ext = 'npz' if self.compress_data else 'npy'
-                freq_path = os.path.join(self.data_dir, "frequency", dataset_dir, f"{base_name}.{ext}")
+                # 6. 计算频域特征 (基于已应用几何变换的图像)
+                freq_tensor = self._compute_frequency_features(img_tensor)
                 
-                # 加载频域数据
-                if self.compress_data:
-                    freq_data = np.load(freq_path)['data']
-                else:
-                    freq_data = np.load(freq_path)
-                
+                # 应用频域特定的增强: 添加噪声
                 if self.use_augment:
-                    noise = np.random.normal(0, self.noise_std, freq_data.shape)
-                    freq_data = freq_data + noise
+                    noise = torch.randn_like(freq_tensor) * self.noise_std
+                    freq_tensor = freq_tensor + noise
                 
-                # 转化为PIL并应用变换
-                freq_pil = self._numpy_to_pil(freq_data)
-                freq_pil = self.freq_transform(freq_pil)
-                freq_tensor = ts.ToTensor()(freq_pil)
+                # 标准化频域数据
+                freq_tensor = self.freq_normalize(freq_tensor)
                 result['freq'] = freq_tensor
             
-            # 3. 创建多通道输入 (如果需要)
+            # 7. 创建多通道输入 (如果需要)
             if self.use_multi_channel and self.data_mode == "both":
                 if 'spatial' in result and 'freq' in result:
                     result['combined'] = torch.cat([result['spatial'], result['freq']], dim=0)
@@ -140,16 +195,6 @@ class FASDataset(Dataset):
             print(f"Error processing {path}: {str(e)}")
         
         return result
-    
-    def _numpy_to_pil(self, array):
-        """将numpy数组转换为PIL图像，适用于频域数据"""
-        if array.min() < 0 or array.max() > 1:
-            # 归一化到[0,1]
-            array = (array - array.min()) / (array.max() - array.min() + 1e-8)
-        
-        # 缩放到[0,255]并转换为uint8
-        array = (array * 255).astype(np.uint8)
-        return Image.fromarray(array)
 
 
 def create_dataloader(dataset, batch_size=32, is_training=True, num_workers=4):

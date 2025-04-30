@@ -239,9 +239,9 @@ def count_parameters(model):
 
 
 def get_class_weights(train_data):
-    """计算类别权重"""
+    """计算平衡类别权重"""
     class_count = torch.tensor([len(train_data) - sum(train_data.labels), sum(train_data.labels)]).float()
-    class_weights = class_count / class_count.sum()
+    class_weights = len(train_data) / (2.0 * class_count)
     return class_weights
 
 

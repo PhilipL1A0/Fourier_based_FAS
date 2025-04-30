@@ -117,13 +117,12 @@ def train():
     scaler = setup_amp(config)
 
     # 损失函数
+    class_weights = get_class_weights(train_loader.dataset)
     if config.loss_func == "cross_entropy":
-        class_weights = get_class_weights(train_loader.dataset)
         logger.info(f"使用带权重的交叉熵损失，类别权重: {class_weights}")
         criterion = nn.CrossEntropyLoss(weight=class_weights).to(device)
     elif config.loss_func == "focal_loss":
         # 对于严重不平衡的数据集，Focal Loss更合适
-        class_weights = get_class_weights(train_loader.dataset)
         criterion = FocalLoss(alpha=class_weights, gamma=2.0).to(device)
         logger.info(f"使用Focal Loss，alpha: {class_weights}, gamma: 2.0")
     else:

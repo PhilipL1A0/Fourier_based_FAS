@@ -17,5 +17,5 @@ def count_files(directory):
             print(f"{child_dir.name}: {file_count} 个文件")
 
 if __name__ == "__main__":
-    target_dir = "/media/main/lzf/FBFAS/data/FAS/MSU"
+    target_dir = "/media/main/lzf/FBFAS/data/dataset"
     count_files(target_dir)

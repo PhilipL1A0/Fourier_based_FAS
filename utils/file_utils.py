@@ -3,7 +3,7 @@ import os
 import csv
 import cv2
 import json
-from .face_detection import FaceDection
+from .face_detection import FaceDetection
 
 def save_config(config, save_path):
     """
@@ -206,7 +206,7 @@ def frame_to_face(frame_dir, face_dir, model_name, normal_size=None, save_mode='
     :model_name: 人脸检测的模型
     :return:
     '''
-    face_detector = FaceDection(model_name=model_name)
+    face_detector = FaceDetection(model_name=model_name)
 
     for root, dirs, files in os.walk(frame_dir):
 

@@ -1,4 +1,7 @@
 # config.py
+from tkinter.tix import Tree
+
+
 class Config:
     def __init__(self):
         #===== 模型结构配置 =====
@@ -8,7 +11,7 @@ class Config:
         # ResNet配置
         self.backbone = "resnet18"
         self.block_type = "residual"
-        self.num_blocks = [2, 2, 2, 2]
+        self.num_blocks = [3, 4, 6, 3]
         self.num_classes = 2
         self.dropout = 0.5
         
@@ -18,12 +21,12 @@ class Config:
         
         # 预训练设置
         self.pretrained = True if self.model_type == "PretrainedResNet18" else False
-        self.freeze_backbone = False
-        self.freeze_layers = []
+        self.freeze_backbone = True
+        self.freeze_layers = ["conv1", "bn1", "pool", "layer1", "layer2"]
         
         # 双流网络配置
         if self.model_type == "DualStreamNetwork":
-            self.spatial_model_type = "ResNet18"  # 空域分支模型类型
+            self.spatial_model_type = "PretrainedResNet18"  # 空域分支模型类型
             self.pretrained = True if self.spatial_model_type == "PretrainedResNet18" else False
             self.freq_model_type = "ResNet18"  # 频域分支模型类型
             
@@ -40,7 +43,7 @@ class Config:
         #===== 训练参数配置 =====
         self.batch_size = 32
         self.epochs = 300
-        self.lr = 5e-4
+        self.lr = 1e-5
         self.backbone_lr_ratio = 0.5  # 主干网络学习率缩放比例
         self.weight_decay = 1e-4
         self.num_workers = 4
@@ -49,7 +52,6 @@ class Config:
         #===== 数据路径配置 =====
         self.base_dir = "/media/main/lzf/FBFAS"
         self.data_dir = f"{self.base_dir}/data"
-        self.dataset_dir = "/media/user/data3/lzf"
         self.output_dir = f"{self.base_dir}/outputs"
         self.compress_data = True
 
@@ -65,7 +67,7 @@ class Config:
         self.test_model = True
 
         #===== 训练策略参数 =====
-        self.patience = 10
+        self.patience = 30
         self.devices = [0, 1]
         self.amp_opt_level = "O1"
         self.warmup_epochs = 5
@@ -76,17 +78,19 @@ class Config:
 
         #===== 数据集配置 =====
         self.dataset = "CASIA"  # "CASIA", "idiap", "MSU", "OULU", "all"
-        self.test_dataset = "CASIA"
+        self.test_dataset = "CASIA"  # "CASIA", "idiap", "MSU", "OULU", "all"
         self.data_mode = "both"  # "spatial", "frequency", "both"
         self.spatial_type = "rgb"  # "rgb", "gray"
         self.use_multi_channel = True
+        self.detect_face = True
         self.input_channels = self._calculate_input_channels()
+        self.balance_data = True
 
         #===== 模型命名 =====
         if_aug = "Aug" if self.use_augment else "NoAug"
         if_dual = "Dual" if self.model_type == "DualStreamNetwork" else "Single"
         if_pretrained = "_Pre" if self.pretrained else ""
-        self.model_name = f"{if_dual}{if_pretrained}_{self.dataset}_{self.data_mode}"
+        self.model_name = f"{if_dual}{if_pretrained}_{self.dataset}_{self.data_mode}_{if_aug}"
             
         self.test_model = f"{self.model_name}_on_{self.test_dataset}"
         

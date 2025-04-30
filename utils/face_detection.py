@@ -3,7 +3,7 @@ import cv2
 import dlib
 import numpy as np
 
-class FaceDection(object):
+class FaceDetection(object):
     '''
     提供多种人脸检测方法的实现
     '''
